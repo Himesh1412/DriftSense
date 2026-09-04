@@ -1,0 +1,35 @@
+# config/settings.yaml
+ticker: "AAPL"
+
+data:
+  historical_start: "2020-01-01"
+  live_window_days: 90        # rolling window size for drift comparison (D1)
+  sequence_length: 20         # lookback window fed into the model per prediction
+
+drift:
+  threshold: 0.30              # KS-test / PSI score above this triggers classification
+  spike_magnitude_std: 3.0     # std-devs above rolling mean to count as a "spike"
+  spike_max_duration_days: 3   # anomaly spikes revert within this many days
+  regime_min_duration_days: 5  # sustained shifts lasting at least this long => regime shift
+
+confidence:
+  mc_dropout_passes: 20
+  abstain_below: 0.55
+
+retraining:
+  benchmark_window_days: 60    # held-out window used to validate a candidate model
+  min_improvement: 0.0         # candidate must not underperform current model
+
+paths:
+  raw_dir: "data/raw"
+  live_dir: "data/live"
+  snapshot_dir: "data/snapshots"
+  model_dir: "models"
+  drift_log: "logs/drift_events.jsonl"
+  retrain_log: "logs/retrain_log.jsonl"
+  backtest_log: "logs/backtest_results.json"
+
+backtest:
+  n_folds: 6                # number of walk-forward folds
+  min_train_days: 250       # rows required before the first fold trains (~1 trading year)
+  test_window_days: 30      # held-out days evaluated per fold, no overlap with that fold's training rows

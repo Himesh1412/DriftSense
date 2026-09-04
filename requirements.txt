@@ -1,0 +1,11 @@
+pandas
+numpy
+torch
+yfinance
+scipy
+scikit-learn
+shap
+streamlit
+plotly
+pyyaml
+pytest
