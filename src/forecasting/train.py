@@ -48,7 +48,21 @@ def make_sequences(df: pd.DataFrame, seq_len: int):
         y.append(targets[window_end - 1])
     return np.array(X), np.array(y)
 
-def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = 15) -> dict:
+def compute_class_weights(y: np.ndarray) -> torch.Tensor:
+    """
+    Inverse-frequency class weights for CrossEntropyLoss. Without this, if
+    "UP" days outnumber "DOWN" days (plausible over a multi-year uptrend),
+    the model can minimize loss by always predicting the majority class —
+    which is exactly what was happening (recall=1.0, precision=accuracy,
+    in both the single-split run and every walk-forward backtest fold).
+    """
+    counts = np.bincount(y, minlength=2).astype(np.float32)
+    counts = np.clip(counts, 1, None)  # guard divide-by-zero if a class is absent
+    weights = counts.sum() / (len(counts) * counts)
+    return torch.tensor(weights, dtype=torch.float32)
+
+
+def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = 60) -> dict:
     cfg = cfg or load_config()
     seq_len = cfg["data"]["sequence_length"]
 
@@ -61,18 +75,21 @@ def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = 15) -> dict
 
     model = DirectionLSTM(n_features=len(FEATURE_COLS))
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    loss_fn = nn.CrossEntropyLoss()
+    loss_fn = nn.CrossEntropyLoss(weight=compute_class_weights(y_train))
 
     X_train_t = torch.tensor(X_train)
     y_train_t = torch.tensor(y_train)
 
     model.train()
+    loss_history = []
     for epoch in range(epochs):
         optimizer.zero_grad()
         logits = model(X_train_t)
         loss = loss_fn(logits, y_train_t)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
+        loss_history.append(round(float(loss.item()), 4))
 
     model.eval()
     with torch.no_grad():
@@ -84,7 +101,8 @@ def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = 15) -> dict
         "recall": round(float(recall_score(y_test, preds, zero_division=0)), 4),
         "f1": round(float(f1_score(y_test, preds, zero_division=0)), 4),
     }
-    return {"model": model, "metrics": metrics, "n_train": len(X_train), "n_test": len(X_test)}
+    return {"model": model, "metrics": metrics, "n_train": len(X_train), "n_test": len(X_test),
+            "loss_history": loss_history}
 
 
 def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bool = True) -> int:

@@ -29,6 +29,19 @@ def append_drift_log(entry: dict, cfg: dict):
         f.write(json.dumps(entry) + "\n")
 
 
+def append_prediction_log(entry: dict, cfg: dict):
+    """
+    FR-11/FR-12: persist every prediction (or abstained/no-model/no-data
+    state) so the dashboard can display it, not just this script's console
+    output. Every cycle appends exactly one entry here, regardless of which
+    branch below produced it — the dashboard reads the last line.
+    """
+    path = resolve_path(cfg["paths"]["prediction_log"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def run_daily_cycle():
     cfg = load_config()
     ticker = cfg["ticker"]
@@ -86,10 +99,29 @@ def run_daily_cycle():
             result = predict_with_confidence(current_model, X[-1], cfg)
             # 19-20: publish prediction or abstained state
             print(f"Prediction: {result}")
+            append_prediction_log({
+                "date": datetime.now().isoformat(),
+                "ticker": ticker,
+                "model_version": version,
+                "status": "ok",
+                **result,
+            }, cfg)
         else:
             print("Not enough live data yet to generate a prediction.")
+            append_prediction_log({
+                "date": datetime.now().isoformat(),
+                "ticker": ticker,
+                "model_version": version,
+                "status": "insufficient_data",
+            }, cfg)
     else:
         print("No trained model exists yet — run scripts/backfill_history.py then src/forecasting/train.py first.")
+        append_prediction_log({
+            "date": datetime.now().isoformat(),
+            "ticker": ticker,
+            "model_version": None,
+            "status": "no_model",
+        }, cfg)
 
 
 if __name__ == "__main__":

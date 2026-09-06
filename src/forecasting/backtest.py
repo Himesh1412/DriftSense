@@ -14,13 +14,13 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 from src.config_loader import load_config
 from src.forecasting.model import DirectionLSTM
-from src.forecasting.train import FEATURE_COLS, engineer_features, make_sequences
+from src.forecasting.train import FEATURE_COLS, engineer_features, make_sequences, compute_class_weights
 
 
 def _train_one_fold(X_train, y_train, epochs: int) -> DirectionLSTM:
     model = DirectionLSTM(n_features=len(FEATURE_COLS))
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    loss_fn = nn.CrossEntropyLoss()
+    loss_fn = nn.CrossEntropyLoss(weight=compute_class_weights(y_train))
 
     X_train_t = torch.tensor(X_train)
     y_train_t = torch.tensor(y_train)
@@ -31,6 +31,7 @@ def _train_one_fold(X_train, y_train, epochs: int) -> DirectionLSTM:
         logits = model(X_train_t)
         loss = loss_fn(logits, y_train_t)
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
     return model
 
@@ -46,7 +47,7 @@ def _summarize_folds(fold_results: list) -> dict:
     return summary
 
 
-def walk_forward_backtest(df, cfg: dict = None, epochs: int = 15) -> dict:
+def walk_forward_backtest(df, cfg: dict = None, epochs: int = 50) -> dict:
     """
     Expanding-window walk-forward backtest: fold k trains on rows [0, train_end_k)
     and evaluates on the following `test_window_days` rows, with train_end_k spaced

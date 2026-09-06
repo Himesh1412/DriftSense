@@ -8,7 +8,8 @@ data:
 
 drift:
   threshold: 0.30              # KS-test / PSI score above this triggers classification
-  spike_magnitude_std: 3.0     # std-devs above rolling mean to count as a "spike"
+  spike_magnitude_std: 2.5     # std-devs above rolling mean to count as a "spike" (was 3.0 — max
+                                # observed |z| in real AAPL history is ~2.71, so 3.0 never fired)
   spike_max_duration_days: 3   # anomaly spikes revert within this many days
   regime_min_duration_days: 5  # sustained shifts lasting at least this long => regime shift
 
@@ -28,6 +29,8 @@ paths:
   drift_log: "logs/drift_events.jsonl"
   retrain_log: "logs/retrain_log.jsonl"
   backtest_log: "logs/backtest_results.json"
+  prediction_log: "logs/prediction_log.jsonl"
+  drift_performance_log: "logs/drift_performance_report.json"
 
 backtest:
   n_folds: 6                # number of walk-forward folds
