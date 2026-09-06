@@ -279,3 +279,10 @@ with col6:
             st.caption("dashed line = configured drift.threshold")
         else:
             st.caption("No drift events logged yet.")
+
+st.markdown("---")
+st.caption(
+    "DriftSense is a course/portfolio project, not a financial product. "
+    "It does not provide financial advice and must not be used to make "
+    "real trading or investment decisions. (SRS §5.5 Safety.)"
+)

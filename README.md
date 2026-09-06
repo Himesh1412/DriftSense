@@ -4,6 +4,12 @@
 An explainable, self-retraining ML pipeline with confidence-aware forecasting
 for real-time stock market prediction.
 
+> **Disclaimer:** DriftSense is a course/portfolio project, not a financial
+> product. It does not provide financial advice and must not be used to make
+> real trading or investment decisions. Predictions may abstain, may be
+> wrong, and the underlying model has not been validated for production
+> trading use. (SRS §5.5 Safety.)
+
 ## Setup
 
     pip install -r requirements.txt
@@ -35,6 +41,34 @@ for real-time stock market prediction.
 6. **Launch the dashboard**:
 
        streamlit run src/dashboard/app.py
+
+## Scheduling (FR-3)
+
+Nothing runs on its own until you set up a schedule — by default you have
+to invoke each script yourself.
+
+**Option A — simplest, run in a terminal you leave open:**
+
+    python -m scripts.scheduler
+
+This runs the daily cycle automatically every day at the time set by
+`schedule.daily_run_time` in `config/settings.yaml` (default `17:30`), for
+as long as this process keeps running. Closing the terminal stops it.
+
+**Option B — a real background task that survives reboots and closed
+terminals.** This registers a persistent OS-level task, so it's left as a
+manual step for you to run yourself rather than something set up
+automatically:
+
+*Windows (Task Scheduler), run once from an elevated PowerShell prompt:*
+
+    schtasks /create /tn "DriftSense Daily Cycle" /tr "python -m scripts.run_daily_cycle" /sc daily /st 17:30 /sd (Get-Date).ToString('MM/dd/yyyy')
+
+To remove it later: `schtasks /delete /tn "DriftSense Daily Cycle" /f`
+
+*Linux/macOS (cron), add a line via `crontab -e`:*
+
+    30 17 * * * cd /path/to/driftsense && python -m scripts.run_daily_cycle
 
 ## Configuration
 
@@ -73,6 +107,7 @@ values in `config/settings.yaml` empirically rather than by feel.
 | Module | Requirement |
 |---|---|
 | `src/ingestion/` | FR-1, FR-3 |
+| `scripts/scheduler.py` | FR-3 |
 | `src/forecasting/train.py` | FR-2 |
 | `src/forecasting/confidence.py` | FR-10, FR-11 |
 | `src/drift/detector.py` | FR-4 |

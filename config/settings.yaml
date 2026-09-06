@@ -36,3 +36,6 @@ backtest:
   n_folds: 6                # number of walk-forward folds
   min_train_days: 250       # rows required before the first fold trains (~1 trading year)
   test_window_days: 30      # held-out days evaluated per fold, no overlap with that fold's training rows
+
+schedule:
+  daily_run_time: "17:30"   # local time scripts/scheduler.py runs the daily cycle at (FR-3)
