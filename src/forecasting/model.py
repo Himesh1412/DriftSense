@@ -39,6 +39,8 @@ class DirectionLSTM(nn.Module):
         self.register_buffer("feature_mean", torch.zeros(n_features))
         self.register_buffer("feature_std", torch.ones(n_features))
         self.register_buffer("abstain_threshold", torch.tensor(0.55))
+        # static fallback for the UP/DOWN decision point, fit on validation data — see decision.py
+        self.register_buffer("decision_offset", torch.tensor(0.0))
         self.lstm_layers = nn.ModuleList()
         self.dropout_layers = nn.ModuleList()
         for i in range(num_layers):

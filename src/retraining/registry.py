@@ -43,7 +43,9 @@ def load_model(ticker: str, version: int, cfg: dict = None) -> DirectionLSTM:
     feature_cols = meta.get("feature_cols", FEATURE_COLS)
     # older checkpoints predate "architecture" and were all built with the defaults
     model = DirectionLSTM(n_features=len(feature_cols), **meta.get("architecture", {}))
-    model.load_state_dict(torch.load(vdir / "model.pt"))
+    state = torch.load(vdir / "model.pt")
+    state.setdefault("decision_offset", torch.tensor(0.0))  # older checkpoints predate it
+    model.load_state_dict(state)
     return model
 
 

@@ -35,3 +35,15 @@ def test_walk_forward_backtest_raises_when_not_enough_data():
     }
     with pytest.raises(ValueError):
         walk_forward_backtest(_fake_df(n=100), cfg=cfg, epochs=1)
+
+def test_backtest_reports_how_lopsided_each_folds_calls_were():
+    cfg = {
+        "data": {"sequence_length": 20},
+        "backtest": {"n_folds": 3, "min_train_days": 150, "test_window_days": 30},
+        "training": {"epochs": 2, "hidden_size": 8, "num_layers": 1},
+    }
+    result = walk_forward_backtest(_fake_df(), cfg=cfg, epochs=2)
+    for fold in result["folds"]:
+        assert 0.0 <= fold["up_share"] <= 1.0
+        assert isinstance(fold["balanced"], bool)
+    assert "up_share_mean" in result["summary"] and "lopsided_folds" in result["summary"]

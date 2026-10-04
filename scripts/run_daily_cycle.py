@@ -20,6 +20,8 @@ from src.retraining.manager import run_retraining_cycle
 from src.retraining.registry import load_current_model
 from src.forecasting.train import engineer_features, make_sequences
 from src.forecasting.confidence import predict_with_confidence
+from src.forecasting.decision import latest_reference, logit_gaps
+from src.retraining.manager import assemble_training_data
 
 
 def append_drift_log(entry: dict, cfg: dict):
@@ -98,10 +100,14 @@ def run_daily_cycle():
     # 16-18: load current model, read recent window, generate prediction + confidence
     current_model, version = load_current_model(ticker, cfg)
     if current_model is not None:
-        engineered = engineer_features(live_df)
+        # The live window alone is too short to know the model's recent typical score, so build
+        # the windows from full history + live window (see forecasting/decision.py).
+        engineered = engineer_features(assemble_training_data(snapshot_df, live_df))
         X, _ = make_sequences(engineered, cfg["data"]["sequence_length"], labeled_only=False)
         if len(X) > 0:
-            result = predict_with_confidence(current_model, X[-1], cfg)
+            n_ref = cfg.get("training", {}).get("balance_reference_window", 60)
+            reference = latest_reference(logit_gaps(current_model, X[-(n_ref + 1):]), n_ref)
+            result = predict_with_confidence(current_model, X[-1], cfg, reference=reference)
             # 19-20: publish prediction or abstained state
             print(f"Prediction: {result}")
             append_prediction_log({

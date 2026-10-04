@@ -13,33 +13,17 @@ import torch.nn as nn
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 from src.config_loader import load_config
-from src.forecasting.model import DirectionLSTM
-from src.forecasting.train import (
-    FEATURE_COLS, engineer_features, make_sequences, compute_class_weights, fit_feature_scaler,
-)
+from src.forecasting.decision import balance_report, calls_with_context
+from src.forecasting.train import engineer_features, make_sequences, fit_model, split_train_val
 
 
-def _train_one_fold(X_train, y_train, epochs: int, cfg: dict = None) -> DirectionLSTM:
-    tcfg = (cfg or {}).get("training", {})
-    model = DirectionLSTM(n_features=len(FEATURE_COLS), hidden_size=tcfg.get("hidden_size", 64),
-                           num_layers=tcfg.get("num_layers", 2), dropout=tcfg.get("dropout", 0.3))
-    fit_feature_scaler(model, X_train)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=tcfg.get("learning_rate", 1e-3),
-                                  weight_decay=tcfg.get("weight_decay", 1e-4))
-    loss_fn = nn.CrossEntropyLoss(weight=compute_class_weights(y_train))
-
-    X_train_t = torch.tensor(X_train)
-    y_train_t = torch.tensor(y_train)
-
-    model.train()
-    for _ in range(epochs):
-        optimizer.zero_grad()
-        logits = model(X_train_t)
-        loss = loss_fn(logits, y_train_t)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
+def _train_one_fold(X_train, y_train, epochs: int, cfg: dict = None):
+    """Train a fold with the SAME routine production uses (train.fit_model), so the backtest
+    measures what actually ships — including checkpoint selection and the decision offset."""
+    cfg = cfg or {}
+    seq_len = cfg.get("data", {}).get("sequence_length", 20)
+    X_tr, y_tr, X_val, y_val = split_train_val(X_train, y_train, seq_len, cfg.get("training", {}).get("val_fraction", 0.15))
+    model, _ = fit_model(X_tr, y_tr, X_val, y_val, cfg, epochs, calibrate_abstain=False)
     return model
 
 
@@ -51,6 +35,8 @@ def _summarize_folds(fold_results: list) -> dict:
         vals = [f[m] for f in fold_results]
         summary[f"{m}_mean"] = round(float(np.mean(vals)), 4)
         summary[f"{m}_std"] = round(float(np.std(vals)), 4)
+    summary["up_share_mean"] = round(float(np.mean([f["up_share"] for f in fold_results])), 4)
+    summary["lopsided_folds"] = int(sum(not f["balanced"] for f in fold_results))
     return summary
 
 
@@ -97,9 +83,9 @@ def walk_forward_backtest(df, cfg: dict = None, epochs: int = None) -> dict:
             continue
 
         model = _train_one_fold(X_train, y_train, epochs, cfg)
-        model.eval()
-        with torch.no_grad():
-            preds = model(torch.tensor(X_test)).argmax(dim=1).numpy()
+        tcfg = cfg.get("training", {})
+        preds = calls_with_context(model, X_train, X_test, tcfg.get("balance_reference_window", 60))
+        balance = balance_report(preds, tcfg.get("balance_min_up_share", 0.30), tcfg.get("balance_max_up_share", 0.70))
 
         fold_results.append({
             "fold": fold_idx,
@@ -112,6 +98,8 @@ def walk_forward_backtest(df, cfg: dict = None, epochs: int = None) -> dict:
             "precision": round(float(precision_score(y_test, preds, zero_division=0)), 4),
             "recall": round(float(recall_score(y_test, preds, zero_division=0)), 4),
             "f1": round(float(f1_score(y_test, preds, zero_division=0)), 4),
+            "up_share": balance["up_share"],
+            "balanced": balance["balanced"],
         })
 
     return {"folds": fold_results, "summary": _summarize_folds(fold_results)}

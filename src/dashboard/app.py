@@ -379,6 +379,16 @@ if ok_predictions and live_df is not None:
         st.dataframe(pd.DataFrame(rows_sorted[:30]), width="stretch", hide_index=True)
         if len(rows_sorted) > 30:
             st.caption(f"Showing the most recent 30 of {len(rows_sorted)} logged predictions.")
+        made = [r["predicted"] for r in rows if r["predicted"] in ("UP", "DOWN")]
+        if made:
+            up_share = made.count("UP") / len(made)
+            lo, hi = cfg["training"]["balance_min_up_share"], cfg["training"]["balance_max_up_share"]
+            msg = f"Calls made: {made.count('UP')} UP · {made.count('DOWN')} DOWN ({up_share:.0%} UP)."
+            if lo <= up_share <= hi:
+                st.caption(msg + " Balanced ✓")
+            else:
+                st.warning(msg + " Lopsided: this model is leaning one way, so its accuracy here mostly reflects "
+                           "which way the market recently went, not skill.")
         resolved = [r for r in rows if r["result"] in ("correct", "wrong")]
         if resolved:
             n_correct = sum(1 for r in resolved if r["result"] == "correct")

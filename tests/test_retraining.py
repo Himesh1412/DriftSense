@@ -77,3 +77,20 @@ def test_model_with_non_default_architecture_round_trips_through_the_registry(tm
     model, version = load_current_model("TINY", cfg)
     assert version == 1
     assert model.lstm_layers[0].hidden_size == 8 and len(model.lstm_layers) == 1
+
+
+def test_checkpoints_saved_before_decision_offset_existed_still_load(tmp_path):
+    """Models trained earlier have no decision_offset buffer; they must load with a neutral 0."""
+    import json
+    import torch
+    cfg = {"data": {"sequence_length": 20}, "paths": {"model_dir": str(tmp_path / "models")}}
+    result = train_baseline(_fake_df(), cfg, epochs=2)
+    save_model(result["model"], result["metrics"], "OLD", cfg)
+
+    ckpt = tmp_path / "models" / "OLD" / "v1" / "model.pt"
+    state = torch.load(ckpt)
+    del state["decision_offset"]            # make it look like an older checkpoint
+    torch.save(state, ckpt)
+
+    model, version = load_current_model("OLD", cfg)
+    assert version == 1 and float(model.decision_offset.item()) == 0.0

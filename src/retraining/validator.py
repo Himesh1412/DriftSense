@@ -8,6 +8,7 @@ import torch
 from sklearn.metrics import accuracy_score, f1_score
 
 from src.config_loader import load_config
+from src.forecasting.decision import decide, logit_gaps
 from src.forecasting.train import engineer_features, make_sequences
 
 
@@ -20,9 +21,10 @@ def evaluate_on_benchmark(model, benchmark_df, cfg: dict = None) -> dict:
     if len(X) == 0:
         return {"accuracy": 0.0, "f1": 0.0}
 
-    model.eval()
-    with torch.no_grad():
-        preds = model(torch.tensor(X, dtype=torch.float32)).argmax(dim=1).numpy()
+    # A 60-day benchmark is too short to build a recent-score history, so each model is judged
+    # with its own stored decision offset (see forecasting/decision.py) — the same treatment for
+    # candidate and current model, so the comparison stays like-for-like.
+    preds = decide(logit_gaps(model, X), float(model.decision_offset.item()))
 
     return {
         "accuracy": round(float(accuracy_score(y, preds)), 4),

@@ -86,3 +86,10 @@ training:
   weight_decay: 0.0001       # L2 regularization, to fight overfitting on a small dataset
   val_fraction: 0.15         # slice of the TRAIN split (never the held-out test) used to
                               # pick the best-performing epoch instead of just taking the last one
+  # One-sided-prediction guard (see src/forecasting/decision.py): UP is called when the model's score
+  # is above the median of its own previous N scores, and a trained model whose calls on the
+  # held-out period are lopsided is retrained from a fresh start, then flagged if it still is.
+  balance_reference_window: 60   # N: how many past scores define "its recent typical score"
+  balance_min_up_share: 0.30     # share of calls that are UP must land inside [min, max]
+  balance_max_up_share: 0.70
+  balance_max_retries: 2          # fresh-start retrains allowed before a lopsided model is just flagged

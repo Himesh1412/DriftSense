@@ -20,6 +20,7 @@ import pandas as pd
 from src.config_loader import load_config, resolve_path
 from src.forecasting.train import engineer_features, make_sequences
 from src.forecasting.confidence import predict_with_confidence
+from src.forecasting.decision import logit_gaps, rolling_reference
 from src.retraining.registry import load_current_model
 
 
@@ -33,10 +34,14 @@ def build_history(ticker: str, cfg: dict, n_days: int = 60) -> list:
     seq_len = cfg["data"]["sequence_length"]
     X, _ = make_sequences(engineered, seq_len, labeled_only=False)
 
+    # Each day is called against the model's own previous scores (causal), exactly as a live
+    # prediction would be — see forecasting/decision.py.
+    n_ref = cfg.get("training", {}).get("balance_reference_window", 60)
     start = max(0, len(X) - n_days)
+    references = rolling_reference(logit_gaps(model, X), start, n_ref)
     entries = []
     for i in range(start, len(X)):
-        result = predict_with_confidence(model, X[i], cfg)
+        result = predict_with_confidence(model, X[i], cfg, reference=float(references[i - start]))
         as_of_date = str(engineered.iloc[i + seq_len - 1]["Date"])
         entries.append({
             "date": datetime.now().isoformat(),

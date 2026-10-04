@@ -16,6 +16,7 @@ from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_sc
 from src.config_loader import load_config, resolve_path
 from src.forecasting.model import DirectionLSTM
 from src.forecasting.confidence import mc_dropout_pass
+from src.forecasting.decision import balance_report, calls_with_context, fit_decision_offset
 
 FEATURE_COLS = ["return_1d", "ma_5", "ma_20", "volatility_10d", "volume_z", "rsi_14", "hl_position_20"]
 
@@ -150,6 +151,12 @@ def calibrate_abstain_threshold(model: DirectionLSTM, X_val: np.ndarray, cfg: di
     return threshold
 
 
+def split_train_val(X: np.ndarray, y: np.ndarray, seq_len: int, val_fraction: float):
+    """Chronological train / validation split with a seq_len gap so no day is in both."""
+    val_split = max(1, int(len(X) * (1 - val_fraction)))
+    return X[:val_split], y[:val_split], X[val_split + seq_len:], y[val_split + seq_len:]
+
+
 def temporal_split(X: np.ndarray, y: np.ndarray, seq_len: int, val_fraction: float = 0.15):
     """
     Chronological train / validation / test split (never shuffled — FR-2 note)
@@ -163,58 +170,36 @@ def temporal_split(X: np.ndarray, y: np.ndarray, seq_len: int, val_fraction: flo
 
     Returns X_train, y_train, X_val, y_val, X_test, y_test.
     """
-    gap = seq_len
     split = int(len(X) * 0.8)
-    X_train_full, y_train_full = X[:split], y[:split]
-    X_test, y_test = X[split + gap:], y[split + gap:]
-
-    val_split = max(1, int(len(X_train_full) * (1 - val_fraction)))
-    X_train, y_train = X_train_full[:val_split], y_train_full[:val_split]
-    X_val, y_val = X_train_full[val_split + gap:], y_train_full[val_split + gap:]
-    return X_train, y_train, X_val, y_val, X_test, y_test
+    X_train, y_train, X_val, y_val = split_train_val(X[:split], y[:split], seq_len, val_fraction)
+    return X_train, y_train, X_val, y_val, X[split + seq_len:], y[split + seq_len:]
 
 
-def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = None) -> dict:
-    cfg = cfg or load_config()
-    seq_len = cfg["data"]["sequence_length"]
+def fit_model(X_train, y_train, X_val, y_val, cfg: dict, epochs: int = None, calibrate_abstain: bool = True):
+    """
+    The one training routine, shared by production training (train_baseline) and the
+    walk-forward backtest so the backtest measures exactly what ships:
+    scale features -> train with best-checkpoint selection on validation -> fit the static
+    UP/DOWN decision offset on validation -> (optionally) calibrate the abstain threshold.
+    Everything fit here uses train/validation data only, never the test set.
+    """
     tcfg = cfg.get("training", {})
     epochs = epochs if epochs is not None else tcfg.get("epochs", 60)
-    hidden_size = tcfg.get("hidden_size", 64)
-    num_layers = tcfg.get("num_layers", 2)
-    dropout = tcfg.get("dropout", 0.3)
-    lr = tcfg.get("learning_rate", 1e-3)
-    weight_decay = tcfg.get("weight_decay", 1e-4)
-    val_fraction = tcfg.get("val_fraction", 0.15)
 
-    engineered = engineer_features(df)
-    X, y = make_sequences(engineered, seq_len)
-
-    # Temporal split with a seq_len gap between train/val/test (see
-    # temporal_split). The validation slice is carved out of the TRAIN side
-    # only, to pick the best-performing epoch's weights and calibrate the
-    # abstain threshold — "epochs" is an upper bound, and the checkpoint
-    # that's kept is chosen by real validation performance.
-    X_train, y_train, X_val, y_val, X_test, y_test = temporal_split(X, y, seq_len, val_fraction)
-
-    model = DirectionLSTM(n_features=len(FEATURE_COLS), hidden_size=hidden_size,
-                           num_layers=num_layers, dropout=dropout)
+    model = DirectionLSTM(n_features=len(FEATURE_COLS), hidden_size=tcfg.get("hidden_size", 64),
+                          num_layers=tcfg.get("num_layers", 2), dropout=tcfg.get("dropout", 0.3))
     fit_feature_scaler(model, X_train)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = torch.optim.Adam(model.parameters(), lr=tcfg.get("learning_rate", 1e-3),
+                                 weight_decay=tcfg.get("weight_decay", 1e-4))
     loss_fn = nn.CrossEntropyLoss(weight=compute_class_weights(y_train))
+    X_train_t, y_train_t, X_val_t = torch.tensor(X_train), torch.tensor(y_train), torch.tensor(X_val)
 
-    X_train_t = torch.tensor(X_train)
-    y_train_t = torch.tensor(y_train)
-    X_val_t = torch.tensor(X_val)
-
-    best_val_bal_acc = -1.0
-    best_state = None
-    loss_history = []
-    for epoch in range(epochs):
+    best_val_bal_acc, best_state, loss_history = -1.0, None, []
+    for _ in range(epochs):
         model.train()
         optimizer.zero_grad()
-        logits = model(X_train_t)
-        loss = loss_fn(logits, y_train_t)
+        loss = loss_fn(model(X_train_t), y_train_t)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -223,12 +208,9 @@ def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = None) -> di
         model.eval()
         with torch.no_grad():
             val_preds = model(X_val_t).argmax(dim=1).numpy() if len(y_val) > 0 else np.array([])
-        # Balanced accuracy (average per-class recall), not raw accuracy —
-        # raw accuracy on a small validation slice is exactly as gameable by
-        # a degenerate "always predict the majority class" model as the
-        # original training-collapse bug was. Balanced accuracy caps a
-        # single-class predictor at 0.5, so checkpoint selection can no
-        # longer reward collapsing back to it.
+        # Balanced accuracy (average per-class recall), not raw accuracy — raw accuracy on a
+        # small validation slice is as gameable by an "always predict the majority class"
+        # model as the original collapse bug was; this caps a single-class predictor at 0.5.
         val_bal_acc = float(balanced_accuracy_score(y_val, val_preds)) if len(y_val) > 0 else 0.0
         if val_bal_acc >= best_val_bal_acc:
             best_val_bal_acc = val_bal_acc
@@ -237,21 +219,49 @@ def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = None) -> di
     if best_state is not None:
         model.load_state_dict(best_state)
 
-    calibrated_threshold = calibrate_abstain_threshold(model, X_val, cfg)
+    offset = fit_decision_offset(model, X_val, float(np.mean(y_train)))
+    threshold = calibrate_abstain_threshold(model, X_val, cfg) if calibrate_abstain else None
+    return model, {"loss_history": loss_history, "best_val_balanced_accuracy": round(best_val_bal_acc, 4),
+                   "calibrated_abstain_threshold": threshold, "decision_offset": round(offset, 5)}
 
-    model.eval()
-    with torch.no_grad():
-        preds = model(torch.tensor(X_test)).argmax(dim=1).numpy()
+
+def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = None) -> dict:
+    cfg = cfg or load_config()
+    seq_len = cfg["data"]["sequence_length"]
+    tcfg = cfg.get("training", {})
+    lo = tcfg.get("balance_min_up_share", 0.30)
+    hi = tcfg.get("balance_max_up_share", 0.70)
+    n_ref = tcfg.get("balance_reference_window", 60)
+    max_retries = tcfg.get("balance_max_retries", 2)
+
+    engineered = engineer_features(df)
+    X, y = make_sequences(engineered, seq_len)
+    X_train, y_train, X_val, y_val, X_test, y_test = temporal_split(X, y, seq_len, tcfg.get("val_fraction", 0.15))
+    n_before_test = len(X) - len(X_test)  # every earlier window is score context for the first test windows
+
+    # Balance check: a model whose calls on the held-out period are lopsided (almost all UP or
+    # almost all DOWN) is not reading the data, and its accuracy would just be the market's
+    # recent base rate. Uses test INPUTS only (no labels), and a failing run is retrained from a
+    # fresh random start, up to max_retries times; if it still fails the result is flagged.
+    for attempt in range(1, max_retries + 2):
+        model, info = fit_model(X_train, y_train, X_val, y_val, cfg, epochs)
+        preds = calls_with_context(model, X[:n_before_test], X_test, n_ref)
+        balance = balance_report(preds, lo, hi)
+        if balance["balanced"]:
+            break
 
     metrics = {
         "accuracy": round(float(accuracy_score(y_test, preds)), 4),
         "precision": round(float(precision_score(y_test, preds, zero_division=0)), 4),
         "recall": round(float(recall_score(y_test, preds, zero_division=0)), 4),
         "f1": round(float(f1_score(y_test, preds, zero_division=0)), 4),
+        "up_share": balance["up_share"],
+        "balanced": balance["balanced"],
     }
     return {"model": model, "metrics": metrics, "n_train": len(X_train), "n_test": len(X_test),
-            "loss_history": loss_history, "best_val_balanced_accuracy": round(best_val_bal_acc, 4),
-            "calibrated_abstain_threshold": round(calibrated_threshold, 4)}
+            "loss_history": info["loss_history"], "best_val_balanced_accuracy": info["best_val_balanced_accuracy"],
+            "calibrated_abstain_threshold": round(info["calibrated_abstain_threshold"], 4),
+            "balance": balance, "attempts": attempt}
 
 
 def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bool = True) -> int:
