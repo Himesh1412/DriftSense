@@ -61,3 +61,19 @@ def test_models_are_isolated_per_ticker(tmp_path):
     assert goog_version == 2
     assert len(get_model_history("AAPL", cfg)) == 1
     assert len(get_model_history("GOOG", cfg)) == 2
+
+def test_model_with_non_default_architecture_round_trips_through_the_registry(tmp_path):
+    """Regression: load_model used to rebuild every model at the default size, so a checkpoint
+    trained with any other hidden_size/num_layers couldn't be loaded back."""
+    cfg = {
+        "data": {"sequence_length": 20},
+        "paths": {"model_dir": str(tmp_path / "models")},
+        "training": {"epochs": 2, "hidden_size": 8, "num_layers": 1, "dropout": 0.1,
+                     "learning_rate": 1e-3, "weight_decay": 0.0, "val_fraction": 0.15},
+    }
+    result = train_baseline(_fake_df(), cfg)
+    save_model(result["model"], result["metrics"], "TINY", cfg)
+
+    model, version = load_current_model("TINY", cfg)
+    assert version == 1
+    assert model.lstm_layers[0].hidden_size == 8 and len(model.lstm_layers) == 1

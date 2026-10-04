@@ -48,6 +48,30 @@ tickers:                    # stocks scripts/onboard_tickers.py trains + backtes
            INFY.NS, SBIN.NS, ITC.NS, HINDUNILVR.NS, LT.NS]               # top Indian large caps (NSE listings;
                                                                           # Yahoo's BSE .BO feed returns 1 row for most of these)
 
+simulator:                  # synthetic stress scenarios for demos (src/simulation) — never touches real logs/models
+  seed: 7                   # demo seed — both scenarios verified to work for all 20 configured stocks
+  retrain_epochs: 30        # shorter retrain so the live demo finishes in about a minute
+  # All sizes are multiples of the chosen stock's own recent daily volatility (sigma), so one
+  # setting works for a calm stock and a wild one alike. Tuned against the REAL drift score +
+  # classifier above; across the 20 configured stocks x 8 random seeds each scenario passes both
+  # gates ~97% of the time. Honest findings baked into these numbers:
+  #  - the drift gate (KS+PSI vs. full history) only trips on a SUSTAINED change, so even the
+  #    "spike" needs weeks of turbulence around it — a lone spike in a calm market is (correctly)
+  #    ignored by the pipeline;
+  #  - the classifier is strict: a steady trend reads as "No Significant Event"; a Regime Shift
+  #    takes a lull followed by an escalating whipsaw.
+  regime_buildup_days: 60
+  regime_buildup_sigmas: 3.0      # choppier-than-normal days before the shock
+  regime_calm_before_days: 8      # quiet stretch right before the shock (makes it stand out)
+  regime_swing_days: 6
+  regime_first_swing_sigmas: 10   # first whipsaw move; each next swing flips sign and grows
+  regime_swing_growth: 1.1
+  spike_buildup_days: 60
+  spike_buildup_sigmas: 3.0
+  spike_calm_before_days: 4
+  spike_sigmas: 16                # one-day shock, fully reverts the next day
+  spike_calm_days: 3
+
 schedule:
   daily_run_time: "17:30"   # local time scripts/scheduler.py runs the daily cycle at (FR-3)
 

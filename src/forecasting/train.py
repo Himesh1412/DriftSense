@@ -273,6 +273,13 @@ def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bo
         "metrics": metrics,
         "promoted": promoted,
         "feature_cols": FEATURE_COLS,
+        # the shape this checkpoint was built with, so the registry can rebuild exactly
+        # it later (training hyperparameters are config-driven and may change over time)
+        "architecture": {
+            "hidden_size": model.lstm_layers[0].hidden_size,
+            "num_layers": len(model.lstm_layers),
+            "dropout": model.dropout_layers[0].p,
+        },
         # already baked into the checkpoint via model.abstain_threshold —
         # duplicated here in plain JSON for easy display (dashboard/report)
         # without having to load the model to read it.

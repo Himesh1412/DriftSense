@@ -39,8 +39,10 @@ def load_model(ticker: str, version: int, cfg: dict = None) -> DirectionLSTM:
     # today's FEATURE_COLS — so an older model trained before a feature was
     # added still loads correctly instead of a size-mismatch crash.
     meta_path = vdir / "metadata.json"
-    feature_cols = json.loads(meta_path.read_text()).get("feature_cols", FEATURE_COLS) if meta_path.exists() else FEATURE_COLS
-    model = DirectionLSTM(n_features=len(feature_cols))
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    feature_cols = meta.get("feature_cols", FEATURE_COLS)
+    # older checkpoints predate "architecture" and were all built with the defaults
+    model = DirectionLSTM(n_features=len(feature_cols), **meta.get("architecture", {}))
     model.load_state_dict(torch.load(vdir / "model.pt"))
     return model
 

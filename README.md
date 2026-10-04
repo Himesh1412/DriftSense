@@ -58,6 +58,27 @@ large Indian stocks (NSE listings — Yahoo's BSE `.BO` feed returns a single
 row for most of them). Each stock is trained independently; a failure on one
 is reported and the rest continue.
 
+## Drift simulator (for demos)
+
+Real markets rarely produce a clean regime shift on demand, so the simulator
+injects a clearly-synthetic shock into a stock's real price window and runs it
+through the **real** drift pipeline (drift score → classifier → SHAP → retrain +
+promotion gate). Retraining happens in a throwaway temp folder seeded with a copy
+of the model, so your real models, logs and predictions are never touched.
+
+    python -m scripts.run_simulation META regime_shift
+    python -m scripts.run_simulation INFY.NS anomaly_spike
+
+or use the **Drift simulator** section at the bottom of the dashboard (two
+buttons). Everything it shows is stamped SIMULATED; injected rows carry a
+`synthetic` flag. Scenario sizes live under `simulator:` in
+`config/settings.yaml`, scaled to each stock's own volatility.
+
+Two honest findings from building it: the drift gate only trips on a *sustained*
+change, so a lone spike in a calm market is correctly ignored; and the
+classifier is strict — a steady trend reads as "No Significant Event", while a
+Regime Shift takes a lull followed by an escalating whipsaw.
+
 ## Scheduling (FR-3)
 
 Nothing runs on its own until you set up a schedule — by default you have
