@@ -62,7 +62,10 @@ is reported and the rest continue.
 
 Real markets rarely produce a clean regime shift on demand, so the simulation
 engine is a standalone test bench — deliberately *not* part of the monitoring
-dashboard:
+dashboard. From the dashboard, use **Simulation Engine** in the sidebar: it shows
+**Open Simulation Engine** (new tab) when the tool is running, or **Start
+Simulation Engine** if it isn't. The tool has a "← Monitoring dashboard" link back.
+To run it by hand:
 
     streamlit run src/simulation/app.py --server.port 8502
 

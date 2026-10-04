@@ -49,8 +49,12 @@ def parse_moves(text: str):
 
 
 # ───────────────────────── header ─────────────────────────
-st.markdown('<div class="eyebrow">DriftSense</div>', unsafe_allow_html=True)
-st.markdown('<div style="font-size:22px;font-weight:600;">Simulation Engine</div>', unsafe_allow_html=True)
+head_l, head_r = st.columns([4, 1])
+with head_l:
+    st.markdown('<div class="eyebrow">DriftSense</div>', unsafe_allow_html=True)
+    st.markdown('<div style="font-size:22px;font-weight:600;">Simulation Engine</div>', unsafe_allow_html=True)
+with head_r:
+    st.link_button("← Monitoring dashboard", f"http://localhost:{SIM['dashboard_port']}", width="stretch")
 st.markdown(
     f'<div class="ds-card" style="border-color:{AMBER};margin-top:14px;"><div class="ds-warning">'
     f'SIMULATED &middot; a test bench. You choose a stock and inject false data into its real price window; '

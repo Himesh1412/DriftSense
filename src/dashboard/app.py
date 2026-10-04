@@ -27,6 +27,24 @@ with st.sidebar:
     ticker = st.text_input("Ticker", value=cfg["ticker"])
     st.caption("Edit config/settings.yaml for threshold changes.")
 
+    # The Simulation Engine is a separate app on its own port. Link to it if it's up,
+    # otherwise offer to start it — one click either way.
+    from src.simulation.launcher import simulator_running, simulator_url, start_simulator
+    st.markdown('<div class="eyebrow" style="margin-top:34px;">Simulation Engine</div>', unsafe_allow_html=True)
+    if simulator_running(cfg):
+        st.link_button("Open Simulation Engine ↗", simulator_url(cfg), width="stretch")
+        st.caption("Running. Opens in a new tab: pick a stock, inject false data, watch the drift pipeline react.")
+    else:
+        st.caption("Test bench for demoing drift: pick a stock, inject false data, watch the pipeline react.")
+        if st.button("Start Simulation Engine", width="stretch"):
+            with st.spinner("Starting the Simulation Engine…"):
+                started = start_simulator(cfg)
+            if started:
+                st.rerun()
+            else:
+                st.error("It didn't come up in time — run `streamlit run src/simulation/app.py --server.port "
+                         f"{cfg['simulator']['app_port']}` in a terminal to see why.")
+
 h1, h2 = st.columns([3, 1])
 with h1:
     st.markdown('<div class="eyebrow">DriftSense</div>', unsafe_allow_html=True)
@@ -373,8 +391,8 @@ else:
 
 st.markdown("---")
 
-st.caption("Want to demo a drift event? The simulation engine is a separate tool — "
-           "run `streamlit run src/simulation/app.py`.")
+st.caption("Want to demo a drift event? Use **Simulation Engine** in the sidebar — it's a separate tool "
+           "where you pick a stock and inject your own false data.")
 
 st.markdown("---")
 st.caption(

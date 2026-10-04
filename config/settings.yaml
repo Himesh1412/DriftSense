@@ -49,6 +49,8 @@ tickers:                    # stocks scripts/onboard_tickers.py trains + backtes
                                                                           # Yahoo's BSE .BO feed returns 1 row for most of these)
 
 simulator:                  # synthetic stress scenarios for demos (src/simulation) — never touches real logs/models
+  app_port: 8502            # the standalone Simulation Engine app (streamlit run src/simulation/app.py)
+  dashboard_port: 8501      # the main dashboard, for the engine's "back" link
   seed: 7                   # demo seed — both scenarios verified to work for all 20 configured stocks
   retrain_epochs: 30        # shorter retrain so the live demo finishes in about a minute
   # All sizes are multiples of the chosen stock's own recent daily volatility (sigma), so one
