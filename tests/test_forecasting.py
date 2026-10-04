@@ -47,13 +47,30 @@ def test_predict_with_confidence_returns_expected_keys():
 def test_make_sequences_uses_every_window_and_aligns_label_to_window_end():
     df = engineer_features(_fake_df())
     seq_len = 20
-    X, y = make_sequences(df, seq_len=seq_len)
-    # one window per possible starting position now, not one fewer
+    # inference mode: every window including the newest, whose label is still unknown (-1)
+    X, y = make_sequences(df, seq_len=seq_len, labeled_only=False)
     assert len(X) == len(df) - seq_len + 1
-    # the last window's final row must be the engineered frame's actual last row
     np.testing.assert_allclose(X[-1][-1], df[FEATURE_COLS].values[-1].astype(np.float32))
-    # its label must be that same last row's own target
-    assert y[-1] == df["target"].values[-1]
+    assert y[-1] == -1
+
+    # training/scoring mode (default): only windows with a real label
+    X_l, y_l = make_sequences(df, seq_len=seq_len)
+    assert len(X_l) == len(X) - 1
+    assert set(np.unique(y_l)) <= {0, 1}
+    # the last labeled window ends on the second-to-last row, with that row's own target
+    np.testing.assert_allclose(X_l[-1][-1], df[FEATURE_COLS].values[-2].astype(np.float32))
+    assert y_l[-1] == df["target"].values[-2]
+
+
+def test_latest_day_label_is_unknown_not_down():
+    """Regression: `shift(-1) > Close` turned the final day's missing next-close into False,
+    i.e. a fake DOWN label that was then trained/scored on as if it were real."""
+    raw = _fake_df()
+    df = engineer_features(raw)
+    assert np.isnan(df["target"].iloc[-1])
+    assert df["target"].iloc[:-1].isin([0.0, 1.0]).all()
+    # and the newest day's features must still be there for live prediction
+    assert df["Close"].iloc[-1] == raw["Close"].iloc[-1]
 
 
 def test_rsi_and_range_position_features_are_bounded():

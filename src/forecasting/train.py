@@ -43,25 +43,43 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     roll_max_20 = df["Close"].rolling(20).max()
     df["hl_position_20"] = (df["Close"] - roll_min_20) / (roll_max_20 - roll_min_20).replace(0, np.nan)
 
-    df["target"] = (df["Close"].shift(-1) > df["Close"]).astype(int)  # next-day direction
-    return df.dropna().reset_index(drop=True)
+    # next-day direction. The most recent day has no "next day" yet, so its
+    # label is genuinely unknown (NaN) — NOT "down". (A plain `shift(-1) > Close`
+    # comparison turns that missing value into False, i.e. a fake DOWN label.)
+    next_close = df["Close"].shift(-1)
+    df["target"] = (next_close > df["Close"]).astype(float).where(next_close.notna())
+
+    # Drop rows whose *features* are incomplete (indicator warm-up), but keep the
+    # latest day even though its label is unknown: live prediction needs it.
+    return df.dropna(subset=FEATURE_COLS).reset_index(drop=True)
 
 
-def make_sequences(df: pd.DataFrame, seq_len: int):
+def make_sequences(df: pd.DataFrame, seq_len: int, labeled_only: bool = True):
     """
     Build (window, label) pairs. The label for a window ending at row r is
     targets[r] itself — target[r] = whether Close[r+1] > Close[r] — so the
     label is exactly the next-day direction following the last day the model
     actually observed.
+
+    labeled_only=True (default — training, validation, backtesting, scoring):
+    windows whose label is still unknown (the latest day) are left out, so a
+    model is never trained or scored on a label that doesn't exist yet.
+    labeled_only=False (live prediction / history backfill): every window is
+    kept, including the newest one, and unknown labels come back as -1.
     """
     feats = df[FEATURE_COLS].values.astype(np.float32)
-    targets = df["target"].values.astype(np.int64)
+    targets = df["target"].values.astype(np.float64)
     X, y = [], []
     for i in range(len(df) - seq_len + 1):
         window_end = i + seq_len  # exclusive
+        label = targets[window_end - 1]
+        if np.isnan(label):
+            if labeled_only:
+                continue
+            label = -1
         X.append(feats[i:window_end])
-        y.append(targets[window_end - 1])
-    return np.array(X), np.array(y)
+        y.append(int(label))
+    return np.array(X), np.array(y, dtype=np.int64)
 
 
 def compute_class_weights(y: np.ndarray) -> torch.Tensor:

@@ -42,6 +42,12 @@ backtest:
   min_train_days: 250       # rows required before the first fold trains (~1 trading year)
   test_window_days: 30      # held-out days evaluated per fold, no overlap with that fold's training rows
 
+tickers:                    # stocks scripts/onboard_tickers.py trains + backtests by default
+  nasdaq: [AAPL, MSFT, NVDA, AMZN, GOOG, META, AVGO, TSLA, COST, NFLX]   # top 10 Nasdaq by market cap
+  india:  [RELIANCE.NS, TCS.NS, HDFCBANK.NS, ICICIBANK.NS, BHARTIARTL.NS,
+           INFY.NS, SBIN.NS, ITC.NS, HINDUNILVR.NS, LT.NS]               # top Indian large caps (NSE listings;
+                                                                          # Yahoo's BSE .BO feed returns 1 row for most of these)
+
 schedule:
   daily_run_time: "17:30"   # local time scripts/scheduler.py runs the daily cycle at (FR-3)
 

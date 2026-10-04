@@ -44,6 +44,20 @@ for real-time stock market prediction.
 
        streamlit run src/dashboard/app.py
 
+## Adding more stocks
+
+One command backfills history, trains that stock's own model, runs the
+walk-forward backtest, and backfills a labelled prediction history so the
+dashboard has something to show:
+
+    python -m scripts.onboard_tickers              # every ticker in config tickers.*
+    python -m scripts.onboard_tickers TSLA INFY.NS # just these
+
+`config/settings.yaml` lists the defaults: the top 10 Nasdaq stocks and 10
+large Indian stocks (NSE listings — Yahoo's BSE `.BO` feed returns a single
+row for most of them). Each stock is trained independently; a failure on one
+is reported and the rest continue.
+
 ## Scheduling (FR-3)
 
 Nothing runs on its own until you set up a schedule — by default you have

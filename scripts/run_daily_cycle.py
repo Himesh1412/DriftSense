@@ -73,7 +73,7 @@ def run_daily_cycle():
         # 9/13: attribution always runs for any flagged drift
         if current_model is not None:
             engineered = engineer_features(live_df)
-            X, _ = make_sequences(engineered, cfg["data"]["sequence_length"])
+            X, _ = make_sequences(engineered, cfg["data"]["sequence_length"], labeled_only=False)
             if len(X) > 0:
                 attribution = explain_drift(current_model, X[-10:])
             else:
@@ -99,7 +99,7 @@ def run_daily_cycle():
     current_model, version = load_current_model(ticker, cfg)
     if current_model is not None:
         engineered = engineer_features(live_df)
-        X, _ = make_sequences(engineered, cfg["data"]["sequence_length"])
+        X, _ = make_sequences(engineered, cfg["data"]["sequence_length"], labeled_only=False)
         if len(X) > 0:
             result = predict_with_confidence(current_model, X[-1], cfg)
             # 19-20: publish prediction or abstained state

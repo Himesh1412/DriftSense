@@ -31,7 +31,7 @@ def build_history(ticker: str, cfg: dict, n_days: int = 60) -> list:
     hist = pd.read_csv(resolve_path(cfg["paths"]["snapshot_dir"]) / f"{ticker}_historical.csv")
     engineered = engineer_features(hist)
     seq_len = cfg["data"]["sequence_length"]
-    X, _ = make_sequences(engineered, seq_len)
+    X, _ = make_sequences(engineered, seq_len, labeled_only=False)
 
     start = max(0, len(X) - n_days)
     entries = []

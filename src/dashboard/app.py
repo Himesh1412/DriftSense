@@ -92,7 +92,8 @@ if prediction_log_path.exists():
     # this card could silently present reconstructed history as if it were
     # today's actual live prediction. Backfilled entries still show up
     # further down in the Actual vs. Predicted table, clearly labeled.
-    live_entries = [p for p in pred_entries if p.get("source", "live_cycle") == "live_cycle"]
+    live_entries = [p for p in pred_entries
+                    if p.get("source", "live_cycle") == "live_cycle" and p.get("ticker") == ticker]
     if live_entries:
         latest_prediction = live_entries[-1]
 
@@ -353,7 +354,14 @@ st.markdown('<div class="eyebrow">Actual vs. Predicted</div>', unsafe_allow_html
 prediction_log_path = resolve_path(cfg["paths"]["prediction_log"])
 ok_predictions = []
 if prediction_log_path.exists():
-    ok_predictions = [p for p in (json.loads(l) for l in open(prediction_log_path)) if p.get("status") == "ok"]
+    _all = (json.loads(l) for l in open(prediction_log_path))
+    # only this ticker's rows (prices come from this ticker's live window), and
+    # if a day was logged more than once keep the most recent entry for it
+    _latest_per_day = {}
+    for p in _all:
+        if p.get("status") == "ok" and p.get("ticker") == ticker:
+            _latest_per_day[(p.get("as_of_date", p["date"][:10]), p.get("source", "live_cycle"))] = p
+    ok_predictions = list(_latest_per_day.values())
 
 if ok_predictions and live_df is not None:
     price_by_date = pd.Series(live_df["Close"].values, index=live_df["Date"].astype(str).str[:10].values)
