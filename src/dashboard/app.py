@@ -15,50 +15,12 @@ from datetime import datetime
 from src.config_loader import load_config, resolve_path
 from src.ingestion.yahoo_ingestor import load_live_window
 from src.retraining.registry import load_current_model, get_model_history
+from src.dashboard.theme import BG, SURFACE, BORDER, TEXT, TEXT_MUTED, TEAL, CORAL, AMBER, apply_theme
 
 st.set_page_config(page_title="DriftSense", layout="wide", page_icon="◆")
 cfg = load_config()
 
-BG, SURFACE, BORDER = "#0B0E13", "#12151C", "#232733"
-TEXT, TEXT_MUTED = "#E7E9EE", "#8891A5"
-TEAL, CORAL, AMBER = "#2FD4C4", "#F9695F", "#F5A623"
-
-# NOTE: keep this <style> block free of blank lines — Streamlit's markdown
-# renderer treats a blank line inside it as ending the raw-HTML block early,
-# which dumps the remaining CSS onto the page as plain visible text instead
-# of applying it as a stylesheet.
-#
-# .eyebrow: section labels now get real breathing room below them (was a
-#   2px margin, which read as "congested" against whatever followed).
-# .ds-card / .ds-metric-row / .ds-num: a pure-HTML card, used where the
-#   content is plain numbers rather than a live Streamlit widget — it
-#   genuinely wraps its contents since it's rendered in one st.markdown
-#   call, unlike the old open-div/close-div-in-two-separate-calls pattern,
-#   which never actually nested anything (the real source of the gap bug).
-# stVerticalBlockBorderWrapper: Streamlit's own st.container(border=True),
-#   reskinned to match .ds-card, used wherever the card holds a real widget
-#   (chart, dataframe) that can't be flattened into raw HTML.
-st.markdown(f"""
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  html, body, [class*="css"] {{ font-family: 'IBM Plex Sans', sans-serif; }}
-  .stApp {{ background-color: {BG}; color: {TEXT}; }}
-  section[data-testid="stSidebar"] {{ background-color: {SURFACE}; border-right: 1px solid {BORDER}; }}
-  .eyebrow {{ font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.12em;
-    text-transform: uppercase; color: {TEXT_MUTED}; margin-bottom: 14px; }}
-  .ds-card {{ background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 6px; padding: 22px 24px; }}
-  .ds-metric-row {{ display: flex; gap: 40px; flex-wrap: wrap; }}
-  .ds-metric-label {{ font-size: 13px; color: {TEXT_MUTED}; margin-bottom: 6px; }}
-  .ds-num {{ font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 600; line-height: 1.2; }}
-  .ds-warning {{ color: {AMBER}; font-size: 14px; }}
-  .pill {{ display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 11px;
-    padding: 2px 8px; border-radius: 3px; }}
-  div[data-testid="stVerticalBlockBorderWrapper"] {{
-    background: {SURFACE}; border: 1px solid {BORDER} !important; border-radius: 6px; }}
-  hr {{ margin: 36px 0 !important; border-color: {BORDER}; }}
-  #MainMenu, footer, header {{ visibility: hidden; }}
-</style>
-""", unsafe_allow_html=True)
+apply_theme()
 
 with st.sidebar:
     st.markdown('<div class="eyebrow">Configuration</div>', unsafe_allow_html=True)
@@ -411,94 +373,8 @@ else:
 
 st.markdown("---")
 
-# Drift simulator: injects a clearly-synthetic shock into this stock's real price
-# window and runs it through the REAL drift pipeline in a sandbox (src/simulation).
-# Real models, logs and predictions are never touched. Imported lazily on click so
-# the dashboard doesn't pay the SHAP import cost on every page load.
-st.markdown('<div class="eyebrow">Simulation</div>', unsafe_allow_html=True)
-with st.expander("Drift simulator — inject a synthetic shock and watch the pipeline react", expanded=False):
-    st.markdown(
-        f'<div class="ds-card" style="border-color:{AMBER};"><div class="ds-warning">'
-        f'SIMULATED &middot; everything in this section is synthetic data injected into {ticker}\'s real price '
-        f'window to demonstrate the pipeline — it is not a market event, and nothing here is saved to the '
-        f'real models, logs or predictions.</div></div>', unsafe_allow_html=True)
-    st.write("")
-    b1, b2 = st.columns(2)
-    run_spike = b1.button("Inject anomaly spike", key="sim_spike", width="stretch")
-    run_regime = b2.button("Inject regime shift", key="sim_regime", width="stretch")
-    chosen = "anomaly_spike" if run_spike else ("regime_shift" if run_regime else None)
-
-    if chosen:
-        from src.simulation.runner import run_scenario
-        with st.spinner("Running the scenario through the real drift pipeline"
-                        + (" (retraining a candidate model, about a minute)…" if chosen == "regime_shift" else "…")):
-            try:
-                st.session_state["sim_result"] = run_scenario(ticker, chosen, cfg)
-            except Exception as e:
-                st.session_state["sim_result"] = {"error": str(e), "ticker": ticker}
-
-    sim = st.session_state.get("sim_result")
-    if sim and sim.get("ticker") == ticker:
-        if "error" in sim:
-            st.error(f"Simulation couldn't run: {sim['error']}")
-        else:
-            import html as _html
-            d, c, a, rt = sim["drift"], sim["classification"], sim["attribution"], sim["retraining"]
-            sdf = sim["sim_df"]
-            st.markdown(f'<div class="eyebrow">SIMULATED &middot; {sim["scenario"].replace("_", " ")} &middot; {ticker}</div>',
-                        unsafe_allow_html=True)
-            st.caption(sim["meta"]["description"])
-
-            real_part, synth_part = sdf[~sdf["synthetic"]], sdf[sdf["synthetic"]]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=real_part["Date"], y=real_part["Close"], mode="lines", name="real prices",
-                                      line=dict(color=TEAL, width=1.4)))
-            joined = pd.concat([real_part.tail(1), synth_part])  # keep the line continuous at the join
-            fig.add_trace(go.Scatter(x=joined["Date"], y=joined["Close"], mode="lines", name="SIMULATED",
-                                      line=dict(color=AMBER, width=1.6, dash="dot")))
-            fig.add_shape(type="line", x0=synth_part["Date"].iloc[0], x1=synth_part["Date"].iloc[0],
-                          y0=0, y1=1, yref="paper", line=dict(color=TEXT_MUTED, dash="dash", width=1))
-            fig.update_layout(paper_bgcolor=SURFACE, plot_bgcolor=SURFACE, height=280,
-                               margin=dict(l=0, r=0, t=10, b=0), font=dict(color=TEXT_MUTED),
-                               legend=dict(orientation="h", y=1.12),
-                               xaxis=dict(gridcolor=BORDER), yaxis=dict(gridcolor=BORDER))
-            st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-
-            label = c["classification"] if c else "—"
-            label_color = {"Regime Shift": CORAL, "Anomaly Spike": AMBER}.get(label, TEXT_MUTED)
-            k1, k2, k3 = st.columns(3, gap="medium")
-            k1.markdown(f"""
-            <div class="ds-card"><div class="eyebrow">Drift score (FR-4)</div>
-              <div class="ds-num">{d['drift_score']:.3f}</div>
-              <div class="ds-metric-label">threshold {d['threshold']} &middot; {'DRIFT DETECTED' if d['detected'] else 'below threshold'}</div>
-            </div>""", unsafe_allow_html=True)
-            k2.markdown(f"""
-            <div class="ds-card"><div class="eyebrow">Classification (FR-5)</div>
-              <div class="ds-num" style="font-size:22px;color:{label_color};">{label}</div>
-              <div class="ds-metric-label">{_html.escape(c['reasoning']) if c else 'Not classified — drift gate not tripped.'}</div>
-            </div>""", unsafe_allow_html=True)
-            k3.markdown(f"""
-            <div class="ds-card"><div class="eyebrow">Attributed cause (FR-6)</div>
-              <div class="ds-num" style="font-size:22px;">{a['top_feature'] if a else '—'}</div>
-              <div class="ds-metric-label">{_html.escape(a['explanation_text']) if a else 'No attribution — nothing was flagged.'}</div>
-            </div>""", unsafe_allow_html=True)
-
-            if rt:
-                verdict_color = TEAL if rt["promoted"] else CORAL
-                st.markdown(f"""
-                <div class="ds-card" style="margin-top:12px;border-color:{verdict_color};">
-                  <div class="eyebrow">Retrain + promotion gate (FR-7 / FR-9) &middot; sandboxed</div>
-                  <div class="ds-metric-row">
-                    <div><div class="ds-metric-label">Candidate accuracy</div><div class="ds-num" style="font-size:22px;">{rt['accuracy_after']:.1%}</div></div>
-                    <div><div class="ds-metric-label">Current model</div><div class="ds-num" style="font-size:22px;">{rt['accuracy_before']:.1%}</div></div>
-                    <div><div class="ds-metric-label">Gate decision</div>
-                      <div class="ds-num" style="font-size:22px;color:{verdict_color};">{'PROMOTED' if rt['promoted'] else 'REJECTED'}</div></div>
-                  </div>
-                  <div class="ds-metric-label" style="margin-top:10px;">Benchmarked on the simulated window. A candidate is promoted only if it does not underperform the current model. This simulated model is discarded — your real model is unchanged.</div>
-                </div>""", unsafe_allow_html=True)
-
-            st.info(sim["outcome"])
-            st.caption(f"Ran in {sim['seconds']}s against the real v{sim['model_version']} model — sandboxed.")
+st.caption("Want to demo a drift event? The simulation engine is a separate tool — "
+           "run `streamlit run src/simulation/app.py`.")
 
 st.markdown("---")
 st.caption(

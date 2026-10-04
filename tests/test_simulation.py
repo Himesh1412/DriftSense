@@ -83,3 +83,34 @@ def test_spike_reverts_to_roughly_the_pre_shock_price(live):
     synthetic = sim_df[sim_df["synthetic"]]["Close"].tolist()
     pre_shock = float(live["Close"].iloc[-1])
     assert abs(synthetic[-1] / pre_shock - 1) < 0.05  # shock of ~16 sigma, reverted to within 5%
+
+
+def test_custom_hand_typed_moves_are_appended_exactly(live):
+    from src.simulation.scenarios import inject_custom_returns
+    sim_df, meta = inject_custom_returns(live, [-10, 5, -20])
+    synth = sim_df[sim_df["synthetic"]]["Close"].tolist()
+    last_real = float(live["Close"].iloc[-1])
+    assert len(synth) == 3 and meta["n_synthetic"] == 3
+    assert synth[0] == pytest.approx(last_real * 0.90)
+    assert synth[1] == pytest.approx(last_real * 0.90 * 1.05)
+    assert synth[2] == pytest.approx(last_real * 0.90 * 1.05 * 0.80)
+
+
+def test_custom_moves_are_capped_so_a_typo_cannot_make_a_negative_price(live):
+    from src.simulation.scenarios import inject_custom_returns
+    sim_df, _ = inject_custom_returns(live, [-500, 900])
+    assert (sim_df["Close"] > 0).all()
+    assert sim_df[sim_df["synthetic"]]["Close"].iloc[0] == pytest.approx(float(live["Close"].iloc[-1]) * 0.55)
+
+
+def test_custom_mode_requires_at_least_one_move(live):
+    from src.simulation.scenarios import inject_custom_returns
+    with pytest.raises(ValueError):
+        inject_custom_returns(live, [])
+
+
+def test_shock_direction_can_be_a_jump_instead_of_a_drop(live):
+    drop, _ = inject_anomaly_spike(live, dict(SIM, spike_buildup_days=0, spike_calm_days=0, spike_direction="drop"), seed=0)
+    jump, _ = inject_anomaly_spike(live, dict(SIM, spike_buildup_days=0, spike_calm_days=0, spike_direction="jump"), seed=0)
+    last = float(live["Close"].iloc[-1])
+    assert drop[drop["synthetic"]]["Close"].iloc[0] < last < jump[jump["synthetic"]]["Close"].iloc[0]

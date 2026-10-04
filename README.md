@@ -58,26 +58,39 @@ large Indian stocks (NSE listings — Yahoo's BSE `.BO` feed returns a single
 row for most of them). Each stock is trained independently; a failure on one
 is reported and the rest continue.
 
-## Drift simulator (for demos)
+## Simulation Engine (separate tool, for demos)
 
-Real markets rarely produce a clean regime shift on demand, so the simulator
-injects a clearly-synthetic shock into a stock's real price window and runs it
-through the **real** drift pipeline (drift score → classifier → SHAP → retrain +
-promotion gate). Retraining happens in a throwaway temp folder seeded with a copy
-of the model, so your real models, logs and predictions are never touched.
+Real markets rarely produce a clean regime shift on demand, so the simulation
+engine is a standalone test bench — deliberately *not* part of the monitoring
+dashboard:
+
+    streamlit run src/simulation/app.py --server.port 8502
+
+Pick any stock (a trained one from the list, or type any Yahoo ticker), design
+the false data — an **anomaly spike**, a **regime shift** (size, direction,
+number of days, turbulence all adjustable), or **type your own daily moves** —
+preview exactly what will be injected, then run it through the **real** drift
+pipeline (drift score -> classifier with reasoning -> SHAP -> retrain +
+promotion gate).
+
+Safety: everything is stamped SIMULATED, injected rows carry a `synthetic`
+flag, retraining happens in a throwaway temp folder seeded with a copy of the
+model, and a stock that was never onboarded is fetched in memory only. Your
+real models, logs and predictions are never written to. A stock without a
+trained model still gets the drift score and classification; SHAP and the
+retrain step need a model and are skipped with a note.
+
+There is also a command-line version:
 
     python -m scripts.run_simulation META regime_shift
     python -m scripts.run_simulation INFY.NS anomaly_spike
 
-or use the **Drift simulator** section at the bottom of the dashboard (two
-buttons). Everything it shows is stamped SIMULATED; injected rows carry a
-`synthetic` flag. Scenario sizes live under `simulator:` in
-`config/settings.yaml`, scaled to each stock's own volatility.
-
-Two honest findings from building it: the drift gate only trips on a *sustained*
-change, so a lone spike in a calm market is correctly ignored; and the
-classifier is strict — a steady trend reads as "No Significant Event", while a
-Regime Shift takes a lull followed by an escalating whipsaw.
+Defaults live under `simulator:` in `config/settings.yaml`, sized relative to
+each stock's own volatility. Two honest findings from building it: the drift
+gate only trips on a *sustained* change, so a lone spike in a calm market is
+correctly ignored; and the classifier is strict — a steady trend reads as "No
+Significant Event", while a Regime Shift takes a lull followed by an
+escalating whipsaw.
 
 ## Scheduling (FR-3)
 

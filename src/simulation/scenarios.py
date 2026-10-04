@@ -22,6 +22,8 @@ def _recent_sigma(df: pd.DataFrame, lookback: int = 60) -> float:
     return float(df["Close"].pct_change().dropna().tail(lookback).std())
 
 
+recent_sigma = _recent_sigma  # public name, used by the simulation tool's UI
+
 MAX_DAILY_MOVE = 0.45  # no synthetic day moves a stock more than 45% (also keeps prices positive)
 
 
@@ -74,7 +76,8 @@ def inject_regime_shift(live_df: pd.DataFrame, sim_cfg: dict, seed: int = None):
     sigma = _recent_sigma(live_df)
     buildup = _buildup(rng, sim_cfg["regime_buildup_days"], sim_cfg["regime_buildup_sigmas"] * sigma,
                        sim_cfg.get("regime_calm_before_days", 0))
-    swings = [-(1 if k % 2 == 0 else -1) * sim_cfg["regime_first_swing_sigmas"] * sigma
+    first = -1 if sim_cfg.get("regime_first_direction", "drop") == "drop" else 1
+    swings = [first * (1 if k % 2 == 0 else -1) * sim_cfg["regime_first_swing_sigmas"] * sigma
               * sim_cfg["regime_swing_growth"] ** k for k in range(sim_cfg["regime_swing_days"])]
     sim_df = _append_synthetic(live_df, buildup + swings, sigma)
     meta = {
@@ -83,7 +86,8 @@ def inject_regime_shift(live_df: pd.DataFrame, sim_cfg: dict, seed: int = None):
         "description": (f"{sim_cfg['regime_buildup_days']} days of choppier trading "
                         f"({sim_cfg['regime_buildup_sigmas']}x normal volatility), then "
                         f"{sim_cfg['regime_swing_days']} escalating whipsaw days starting at a "
-                        f"{sim_cfg['regime_first_swing_sigmas']}x-sigma drop."),
+                        f"{sim_cfg['regime_first_swing_sigmas']}x-sigma "
+                        f"{'drop' if first < 0 else 'jump'}."),
     }
     return sim_df, meta
 
@@ -97,7 +101,8 @@ def inject_anomaly_spike(live_df: pd.DataFrame, sim_cfg: dict, seed: int = None)
     sigma = _recent_sigma(live_df)
     buildup = _buildup(rng, sim_cfg["spike_buildup_days"], sim_cfg["spike_buildup_sigmas"] * sigma,
                        sim_cfg.get("spike_calm_before_days", 0))
-    shock = [-sim_cfg["spike_sigmas"] * sigma, sim_cfg["spike_sigmas"] * sigma * 0.97]
+    sign = -1 if sim_cfg.get("spike_direction", "drop") == "drop" else 1
+    shock = [sign * sim_cfg["spike_sigmas"] * sigma, -sign * sim_cfg["spike_sigmas"] * sigma * 0.97]
     calm = list(rng.normal(0, 0.3 * sigma, sim_cfg["spike_calm_days"]))
     sim_df = _append_synthetic(live_df, buildup + shock + calm, sigma)
     meta = {
@@ -105,7 +110,27 @@ def inject_anomaly_spike(live_df: pd.DataFrame, sim_cfg: dict, seed: int = None)
         "n_synthetic": int(sim_df["synthetic"].sum()),
         "description": (f"{sim_cfg['spike_buildup_days']} days of choppier trading "
                         f"({sim_cfg['spike_buildup_sigmas']}x normal volatility), then a "
-                        f"one-day {sim_cfg['spike_sigmas']}x-sigma drop that reverts the next day, "
+                        f"one-day {sim_cfg['spike_sigmas']}x-sigma {'drop' if sign < 0 else 'jump'} that reverts the next day, "
                         f"followed by {sim_cfg['spike_calm_days']} calm days."),
+    }
+    return sim_df, meta
+
+
+def inject_custom_returns(live_df: pd.DataFrame, daily_moves_pct: list, sim_cfg: dict = None, seed: int = None):
+    """
+    Append hand-typed daily moves (in percent, e.g. [-3, 2, -6, 8]) to the real
+    window. This is the "inject my own false data" mode: you choose every day.
+    Each move is capped at +/-45% a day.
+    """
+    if not daily_moves_pct:
+        raise ValueError("type at least one daily move to inject")
+    sigma = _recent_sigma(live_df)
+    returns = [m / 100.0 for m in daily_moves_pct]
+    sim_df = _append_synthetic(live_df, returns, sigma)
+    meta = {
+        "scenario": "custom", "sigma": sigma,
+        "n_synthetic": int(sim_df["synthetic"].sum()),
+        "description": (f"{len(returns)} hand-typed daily moves appended to the real window: "
+                        + ", ".join(f"{m:+g}%" for m in daily_moves_pct) + "."),
     }
     return sim_df, meta

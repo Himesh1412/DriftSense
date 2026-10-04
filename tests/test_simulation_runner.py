@@ -88,3 +88,33 @@ def test_unknown_scenario_is_rejected(env):
     cfg, _ = env
     with pytest.raises(ValueError):
         run_scenario("FAKE", "meteor_strike", cfg)
+
+
+def test_custom_typed_moves_run_through_the_pipeline(env):
+    cfg, _ = env
+    result = run_scenario("FAKE", "custom", cfg, custom_moves_pct=[-8, 7, -9, 8, -10, 9, -12])
+    assert result["scenario"] == "custom"
+    assert result["meta"]["n_synthetic"] == 7
+    assert "drift" in result and "outcome" in result
+
+
+def test_user_supplied_sim_settings_override_the_config(env):
+    cfg, _ = env
+    gentle = dict(cfg["simulator"], spike_sigmas=0.5, spike_buildup_days=0)
+    result = run_scenario("FAKE", "anomaly_spike", cfg, seed=0, sim_cfg=gentle)
+    assert result["drift"]["detected"] is False  # a 0.5-sigma "spike" in a calm market is nothing
+
+
+def test_stock_without_a_trained_model_still_gets_drift_and_classification(env):
+    cfg, tmp = env
+    for sub, name in [("snapshots", "historical"), ("live", "live")]:
+        src = tmp / sub / f"FAKE_{name}.csv"
+        (tmp / sub / f"NOMODEL_{name}.csv").write_text(src.read_text())
+
+    result = run_scenario("NOMODEL", "regime_shift", cfg, seed=0)
+
+    assert result["has_model"] is False and result["model_version"] is None
+    assert result["drift"]["detected"] is True
+    assert result["classification"]["classification"] == "Regime Shift"
+    assert result["attribution"] is None and result["retraining"] is None
+    assert "no trained model" in result["outcome"]
