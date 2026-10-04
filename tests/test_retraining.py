@@ -1,9 +1,10 @@
 # tests/test_retraining.py
 import numpy as np
 import pandas as pd
-from src.forecasting.train import train_baseline
+from src.forecasting.train import train_baseline, save_model
 from src.retraining.validator import validate_candidate
 from src.retraining.manager import assemble_training_data
+from src.retraining.registry import load_current_model, get_model_history
 
 def _fake_df(n=200):
     rng = np.random.default_rng(0)
@@ -37,3 +38,26 @@ def test_assemble_training_data_without_date_column_just_concatenates():
     live = _fake_df(10)
     combined = assemble_training_data(historical, live)
     assert len(combined) == 60
+
+
+def test_models_are_isolated_per_ticker(tmp_path):
+    """
+    Regression test for the bug found while adding multi-ticker support:
+    all tickers used to share one flat models/v{n}/ sequence, so training
+    a second ticker's model would silently become the "current" model for
+    every other ticker too. Models must now be namespaced per ticker.
+    """
+    cfg = {"data": {"sequence_length": 20}, "paths": {"model_dir": str(tmp_path / "models")}}
+    result = train_baseline(_fake_df(), cfg, epochs=2)
+
+    save_model(result["model"], result["metrics"], "AAPL", cfg)
+    save_model(result["model"], result["metrics"], "GOOG", cfg)
+    save_model(result["model"], result["metrics"], "GOOG", cfg)  # GOOG's second version
+
+    _, aapl_version = load_current_model("AAPL", cfg)
+    _, goog_version = load_current_model("GOOG", cfg)
+
+    assert aapl_version == 1
+    assert goog_version == 2
+    assert len(get_model_history("AAPL", cfg)) == 1
+    assert len(get_model_history("GOOG", cfg)) == 2

@@ -44,7 +44,7 @@ def run_retraining_cycle(historical_df, live_df, benchmark_df, ticker: str, trig
     """
     cfg = cfg or load_config()
 
-    current_model, current_version = load_current_model(cfg)
+    current_model, current_version = load_current_model(ticker, cfg)
     training_df = assemble_training_data(historical_df, live_df)
     result = train_baseline(training_df, cfg)
     candidate_model = result["model"]

@@ -20,7 +20,9 @@ for real-time stock market prediction.
 
        python -m scripts.backfill_history
 
-2. **Train the baseline model** (creates `models/v1/`):
+2. **Train the baseline model** (creates `models/{ticker}/v1/` — models are
+   namespaced per ticker, so training a second stock never overwrites or
+   gets confused with another's):
 
        python -m src.forecasting.train
 
@@ -29,7 +31,7 @@ for real-time stock market prediction.
 
        python -m scripts.run_daily_cycle
 
-4. **Run the walk-forward backtest** (writes `logs/backtest_results.json`):
+4. **Run the walk-forward backtest** (writes `logs/backtest_results/{ticker}.json`):
 
        python -m scripts.run_backtest
 
@@ -90,6 +92,23 @@ edit that file rather than hardcoding values in code.
 - **Promotion gate.** A retrained candidate is only promoted if it doesn't
   underperform the current model on a held-out benchmark
   (`src/retraining/validator.py`) — this gate is never bypassed.
+- **Per-model calibrated confidence threshold, not one fixed global number.**
+  MC-Dropout confidence turned out to cluster in a narrow, model-specific
+  band (e.g. 0.49-0.52) regardless of a model's real backtested accuracy —
+  a fixed `abstain_below: 0.55` was unreachable for every ticker tried,
+  including ones with genuinely good backtest accuracy (META: 60%+ across 6
+  folds), so it abstained on 100% of live predictions. `train.py`'s
+  `calibrate_abstain_threshold()` now sets each model's own
+  `abstain_threshold` (a buffer saved inside the checkpoint itself) from
+  that model's own validation-set confidence distribution — abstaining on
+  the bottom `confidence.abstain_percentile` (default 25%) least-confident
+  predictions, rather than comparing to a magnitude that assumed a scale
+  this architecture doesn't actually produce. This is framed as "flag the
+  relatively least-sure calls", not "the kept tier is proven more
+  accurate" — at this data scale, confidence magnitude and correctness were
+  only weakly/noisily correlated, so the dashboard's Backtest Evidence
+  section is the more honest place to look for whether a model actually
+  works, not any single day's live reading.
 
 ## Exploration notebook
 
@@ -115,6 +134,6 @@ values in `config/settings.yaml` empirically rather than by feel.
 | `src/drift/classifier.py` | FR-5 |
 | `src/drift/attribution.py` | FR-6 |
 | `src/retraining/manager.py` | FR-7 |
-| `src/retraining/registry.py` | FR-8 |
+| `src/retraining/registry.py` | FR-8 (per-ticker namespaced) |
 | `src/retraining/validator.py` | FR-9 |
 | `src/dashboard/app.py` | FR-12 |

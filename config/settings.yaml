@@ -1,5 +1,6 @@
 # config/settings.yaml
-ticker: "AAPL"
+ticker: "META"  # switched from AAPL — backtested real accuracy of 60.6% across 6 folds
+                # (vs. AAPL's 54.5%, mostly noise-level for a stock this efficiently priced)
 
 data:
   historical_start: "2020-01-01"
@@ -15,7 +16,11 @@ drift:
 
 confidence:
   mc_dropout_passes: 20
-  abstain_below: 0.55
+  abstain_below: 0.55          # fallback default only, for a model that predates calibration
+                                # (e.g. freshly constructed in tests); real models use their own
+                                # calibrate_abstain_threshold() value instead — see train.py
+  abstain_percentile: 25       # abstain on the bottom 25% least-confident predictions,
+                                # calibrated per model from its own validation-set distribution
 
 retraining:
   benchmark_window_days: 60    # held-out window used to validate a candidate model
@@ -28,7 +33,7 @@ paths:
   model_dir: "models"
   drift_log: "logs/drift_events.jsonl"
   retrain_log: "logs/retrain_log.jsonl"
-  backtest_log: "logs/backtest_results.json"
+  backtest_log_dir: "logs/backtest_results"   # one {ticker}.json per stock — see run_backtest.py
   prediction_log: "logs/prediction_log.jsonl"
   drift_performance_log: "logs/drift_performance_report.json"
 
@@ -39,3 +44,13 @@ backtest:
 
 schedule:
   daily_run_time: "17:30"   # local time scripts/scheduler.py runs the daily cycle at (FR-3)
+
+training:
+  epochs: 80                # training epochs for the baseline/candidate model
+  hidden_size: 64            # LSTM hidden state size
+  num_layers: 2              # stacked LSTM layers
+  dropout: 0.3               # dropout rate (also drives MC Dropout confidence, FR-10)
+  learning_rate: 0.001
+  weight_decay: 0.0001       # L2 regularization, to fight overfitting on a small dataset
+  val_fraction: 0.15         # slice of the TRAIN split (never the held-out test) used to
+                              # pick the best-performing epoch instead of just taking the last one

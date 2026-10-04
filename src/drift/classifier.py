@@ -28,7 +28,12 @@ def classify_drift(live_df: pd.DataFrame, cfg: dict = None, feature: str = "Clos
     spike_days = z_scores[abs(z_scores) > spike_threshold]
 
     if len(spike_days) == 0:
-        return {"classification": "No Significant Event", "magnitude": 0.0, "duration_days": 0}
+        return {
+            "classification": "No Significant Event",
+            "magnitude": 0.0,
+            "duration_days": 0,
+            "reasoning": f"No day in the live window exceeded the {spike_threshold}-std spike threshold.",
+        }
 
     magnitude = float(abs(z_scores).max())
     # duration: how many consecutive recent days stayed elevated after the spike
@@ -38,16 +43,27 @@ def classify_drift(live_df: pd.DataFrame, cfg: dict = None, feature: str = "Clos
     max_anomaly_duration = cfg["drift"]["spike_max_duration_days"]
     min_regime_duration = cfg["drift"]["regime_min_duration_days"]
 
+    base = (f"Magnitude {magnitude:.2f} std exceeded the {spike_threshold} spike threshold; "
+            f"{duration}/{min_regime_duration} of the most recent days stayed elevated.")
+
     if duration >= min_regime_duration:
         classification = "Regime Shift"
+        reasoning = (f"{base} That meets the regime_min_duration_days ({min_regime_duration}) bar for "
+                     f"a sustained shift, not a one-off spike — classified as Regime Shift.")
     elif duration <= max_anomaly_duration:
         classification = "Anomaly Spike"
+        reasoning = (f"{base} That's within spike_max_duration_days ({max_anomaly_duration}), i.e. it "
+                     f"reverted quickly — classified as Anomaly Spike, not retrain-worthy.")
     else:
         # ambiguous middle ground — default to the safer (non-retraining) label
         classification = "Anomaly Spike"
+        reasoning = (f"{base} That's between spike_max_duration_days ({max_anomaly_duration}) and "
+                     f"regime_min_duration_days ({min_regime_duration}) — an ambiguous middle ground, "
+                     f"defaulted to the safer Anomaly Spike label (no retrain) rather than assume drift.")
 
     return {
         "classification": classification,
         "magnitude": round(magnitude, 3),
         "duration_days": duration,
+        "reasoning": reasoning,
     }

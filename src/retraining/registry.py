@@ -1,7 +1,10 @@
 # src/retraining/registry.py
 """
 Model Registry (FR-8, D2).
-Versions trained models and keeps a queryable changelog.
+Versions trained models and keeps a queryable changelog, namespaced per
+ticker (models/{ticker}/v{n}/) so training a second stock's model can never
+silently become the "current" model for a different one — before this fix,
+every ticker shared one flat models/v{n}/ sequence with no isolation.
 """
 import json
 import torch
@@ -12,9 +15,13 @@ from src.forecasting.model import DirectionLSTM
 from src.forecasting.train import FEATURE_COLS
 
 
-def get_current_version(cfg: dict = None) -> int:
+def _ticker_model_dir(ticker: str, cfg: dict) -> Path:
+    return resolve_path(cfg["paths"]["model_dir"]) / ticker
+
+
+def get_current_version(ticker: str, cfg: dict = None) -> int:
     cfg = cfg or load_config()
-    model_dir = resolve_path(cfg["paths"]["model_dir"])
+    model_dir = _ticker_model_dir(ticker, cfg)
     promoted = []
     for vdir in model_dir.glob("v*"):
         meta_path = vdir / "metadata.json"
@@ -25,26 +32,31 @@ def get_current_version(cfg: dict = None) -> int:
     return max(promoted) if promoted else 0
 
 
-def load_model(version: int, cfg: dict = None) -> DirectionLSTM:
+def load_model(ticker: str, version: int, cfg: dict = None) -> DirectionLSTM:
     cfg = cfg or load_config()
-    vdir = resolve_path(cfg["paths"]["model_dir"]) / f"v{version}"
-    model = DirectionLSTM(n_features=len(FEATURE_COLS))
+    vdir = _ticker_model_dir(ticker, cfg) / f"v{version}"
+    # feature count comes from this specific checkpoint's own metadata, not
+    # today's FEATURE_COLS — so an older model trained before a feature was
+    # added still loads correctly instead of a size-mismatch crash.
+    meta_path = vdir / "metadata.json"
+    feature_cols = json.loads(meta_path.read_text()).get("feature_cols", FEATURE_COLS) if meta_path.exists() else FEATURE_COLS
+    model = DirectionLSTM(n_features=len(feature_cols))
     model.load_state_dict(torch.load(vdir / "model.pt"))
     return model
 
 
-def load_current_model(cfg: dict = None):
+def load_current_model(ticker: str, cfg: dict = None):
     cfg = cfg or load_config()
-    version = get_current_version(cfg)
+    version = get_current_version(ticker, cfg)
     if version == 0:
         return None, None
-    return load_model(version, cfg), version
+    return load_model(ticker, version, cfg), version
 
 
-def get_model_history(cfg: dict = None) -> list:
+def get_model_history(ticker: str, cfg: dict = None) -> list:
     """Used by the dashboard (FR-12) to show retraining/version history."""
     cfg = cfg or load_config()
-    model_dir = resolve_path(cfg["paths"]["model_dir"])
+    model_dir = _ticker_model_dir(ticker, cfg)
     history = []
     for vdir in sorted(model_dir.glob("v*")):
         meta_path = vdir / "metadata.json"

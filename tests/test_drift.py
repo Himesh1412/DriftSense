@@ -32,3 +32,10 @@ def test_classifier_detects_no_event_on_flat_data():
     flat = _fake_price_df(seed=3)
     result = classify_drift(flat)
     assert result["classification"] in ["No Significant Event", "Anomaly Spike", "Regime Shift"]
+
+
+def test_classifier_always_includes_reasoning():
+    for seed in [1, 2, 3, 4, 5]:
+        result = classify_drift(_fake_price_df(seed=seed))
+        assert "reasoning" in result
+        assert isinstance(result["reasoning"], str) and len(result["reasoning"]) > 0

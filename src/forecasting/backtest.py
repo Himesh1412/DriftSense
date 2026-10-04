@@ -14,12 +14,19 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 
 from src.config_loader import load_config
 from src.forecasting.model import DirectionLSTM
-from src.forecasting.train import FEATURE_COLS, engineer_features, make_sequences, compute_class_weights
+from src.forecasting.train import (
+    FEATURE_COLS, engineer_features, make_sequences, compute_class_weights, fit_feature_scaler,
+)
 
 
-def _train_one_fold(X_train, y_train, epochs: int) -> DirectionLSTM:
-    model = DirectionLSTM(n_features=len(FEATURE_COLS))
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+def _train_one_fold(X_train, y_train, epochs: int, cfg: dict = None) -> DirectionLSTM:
+    tcfg = (cfg or {}).get("training", {})
+    model = DirectionLSTM(n_features=len(FEATURE_COLS), hidden_size=tcfg.get("hidden_size", 64),
+                           num_layers=tcfg.get("num_layers", 2), dropout=tcfg.get("dropout", 0.3))
+    fit_feature_scaler(model, X_train)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=tcfg.get("learning_rate", 1e-3),
+                                  weight_decay=tcfg.get("weight_decay", 1e-4))
     loss_fn = nn.CrossEntropyLoss(weight=compute_class_weights(y_train))
 
     X_train_t = torch.tensor(X_train)
@@ -47,7 +54,7 @@ def _summarize_folds(fold_results: list) -> dict:
     return summary
 
 
-def walk_forward_backtest(df, cfg: dict = None, epochs: int = 50) -> dict:
+def walk_forward_backtest(df, cfg: dict = None, epochs: int = None) -> dict:
     """
     Expanding-window walk-forward backtest: fold k trains on rows [0, train_end_k)
     and evaluates on the following `test_window_days` rows, with train_end_k spaced
@@ -57,6 +64,7 @@ def walk_forward_backtest(df, cfg: dict = None, epochs: int = 50) -> dict:
     cfg = cfg or load_config()
     bt_cfg = cfg["backtest"]
     seq_len = cfg["data"]["sequence_length"]
+    epochs = epochs if epochs is not None else cfg.get("training", {}).get("epochs", 50)
 
     engineered = engineer_features(df)
     n = len(engineered)
@@ -88,7 +96,7 @@ def walk_forward_backtest(df, cfg: dict = None, epochs: int = 50) -> dict:
         if len(X_train) == 0 or len(X_test) == 0:
             continue
 
-        model = _train_one_fold(X_train, y_train, epochs)
+        model = _train_one_fold(X_train, y_train, epochs, cfg)
         model.eval()
         with torch.no_grad():
             preds = model(torch.tensor(X_test)).argmax(dim=1).numpy()

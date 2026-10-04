@@ -60,7 +60,7 @@ def run_daily_cycle():
         classification = classify_drift(live_df, cfg)
         print(f"Classification: {classification}")
 
-        current_model, _ = load_current_model(cfg)
+        current_model, _ = load_current_model(ticker, cfg)
 
         if classification["classification"] == "Regime Shift" and current_model is not None:
             # 7-8, 10-12, 14: retrain (on historical + live data), validate, promote if passed
@@ -86,12 +86,17 @@ def run_daily_cycle():
             "date": datetime.now().isoformat(),
             "classification": classification["classification"],
             "drift_score": drift_result["drift_score"],
+            # why the classifier called it Regime Shift vs Anomaly Spike
+            # (the magnitude/duration heuristic's own reasoning) — distinct
+            # from "cause"/"explanation" below, which is SHAP explaining
+            # which *feature* the model's behavior is most associated with.
+            "classification_reason": classification.get("reasoning", ""),
             "cause": attribution.get("top_feature", "n/a"),
             "explanation": attribution["explanation_text"],
         }, cfg)
 
     # 16-18: load current model, read recent window, generate prediction + confidence
-    current_model, version = load_current_model(cfg)
+    current_model, version = load_current_model(ticker, cfg)
     if current_model is not None:
         engineered = engineer_features(live_df)
         X, _ = make_sequences(engineered, cfg["data"]["sequence_length"])
@@ -104,6 +109,11 @@ def run_daily_cycle():
                 "ticker": ticker,
                 "model_version": version,
                 "status": "ok",
+                # the actual trading day this prediction's input window ends
+                # on — NOT necessarily today, if there's a weekend/holiday/
+                # ingestion lag. This is what "actual vs predicted" must
+                # anchor to, not the timestamp the cycle happened to run at.
+                "as_of_date": str(live_df["Date"].iloc[-1]),
                 **result,
             }, cfg)
         else:
