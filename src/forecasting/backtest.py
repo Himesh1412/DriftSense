@@ -45,7 +45,11 @@ def walk_forward_backtest(df, cfg: dict = None, epochs: int = None) -> dict:
     Expanding-window walk-forward backtest: fold k trains on rows [0, train_end_k)
     and evaluates on the following `test_window_days` rows, with train_end_k spaced
     evenly between min_train_days and the last point that leaves a full test window.
-    Test windows never overlap training rows for that fold, so there's no leakage.
+    Every labelled day in the test window gets scored (~test_window_days predictions per fold):
+    each test window borrows its seq_len-1 lookback days from the rows just before the test
+    period. That is only past INPUT data a live call would also have; every training label is
+    for a day before the test period, so nothing is leaked. (Slicing the test rows on their
+    own used to throw away the first seq_len-1 days, leaving ~11 predictions per 30-day fold.)
     """
     cfg = cfg or load_config()
     bt_cfg = cfg["backtest"]
@@ -71,11 +75,11 @@ def walk_forward_backtest(df, cfg: dict = None, epochs: int = None) -> dict:
     for fold_idx, train_end in enumerate(train_ends):
         train_end = int(train_end)
         test_end = min(train_end + test_window, n)
-        if test_end - train_end < seq_len:
-            continue  # not enough rows in this fold's test window for even one sequence
+        if test_end - train_end < 1:
+            continue
 
         train_slice = engineered.iloc[:train_end].reset_index(drop=True)
-        test_slice = engineered.iloc[train_end:test_end].reset_index(drop=True)
+        test_slice = engineered.iloc[train_end - seq_len + 1:test_end].reset_index(drop=True)  # lookback + test days
 
         X_train, y_train = make_sequences(train_slice, seq_len)
         X_test, y_test = make_sequences(test_slice, seq_len)

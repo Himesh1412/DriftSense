@@ -1,5 +1,5 @@
 # config/settings.yaml
-ticker: "META"  # switched from AAPL — backtested real accuracy of 60.6% across 6 folds
+ticker: "META"  # default stock for single-ticker scripts (walk-forward accuracy ~51%, see README "Honest accuracy")
                 # (vs. AAPL's 54.5%, mostly noise-level for a stock this efficiently priced)
 
 data:
@@ -40,7 +40,7 @@ paths:
 backtest:
   n_folds: 6                # number of walk-forward folds
   min_train_days: 250       # rows required before the first fold trains (~1 trading year)
-  test_window_days: 30      # held-out days evaluated per fold, no overlap with that fold's training rows
+  test_window_days: 100     # days scored per fold (~600 predictions over 6 folds; 30 days gave too few for a stable accuracy)
 
 tickers:                    # stocks scripts/onboard_tickers.py trains + backtests by default
   nasdaq: [AAPL, MSFT, NVDA, AMZN, GOOG, META, AVGO, TSLA, COST, NFLX]   # top 10 Nasdaq by market cap

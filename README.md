@@ -147,8 +147,7 @@ edit that file rather than hardcoding values in code.
   MC-Dropout confidence turned out to cluster in a narrow, model-specific
   band (e.g. 0.49-0.52) regardless of a model's real backtested accuracy —
   a fixed `abstain_below: 0.55` was unreachable for every ticker tried,
-  including ones with genuinely good backtest accuracy (META: 60%+ across 6
-  folds), so it abstained on 100% of live predictions. `train.py`'s
+  including ones with the best backtest accuracy of the set, so it abstained on 100% of live predictions. `train.py`'s
   `calibrate_abstain_threshold()` now sets each model's own
   `abstain_threshold` (a buffer saved inside the checkpoint itself) from
   that model's own validation-set confidence distribution — abstaining on
@@ -160,6 +159,38 @@ edit that file rather than hardcoding values in code.
   only weakly/noisily correlated, so the dashboard's Backtest Evidence
   section is the more honest place to look for whether a model actually
   works, not any single day's live reading.
+
+- **Re-centred UP/DOWN calls plus a balance check.** The LSTM's up-vs-down
+  score barely moves from day to day, so a plain "score > 0" rule made some
+  stocks call DOWN (or UP) almost every day. `src/forecasting/decision.py`
+  calls UP when today's score is above the median of the model's own previous
+  60 scores (past data only), and training/backtesting report the share of UP
+  calls. A model whose held-out calls fall outside 30-70% UP is retrained from
+  a fresh start (up to twice) and flagged if it stays lopsided.
+
+## Honest accuracy
+
+Walk-forward backtest, 6 folds x 100 test days (~600 predictions per stock),
+all 20 configured stocks, trained with the same routine production uses:
+
+| Group | Direction accuracy |
+|---|---|
+| Nasdaq top 10 | 50.9% |
+| NSE top 10 | 49.9% |
+| All 20 | 50.4% (11 stocks above 50%, 9 below; range 46.1-54.1%) |
+
+That is a coin flip. One stock's score carries about +/-2 points of sampling
+noise, so the best results (COST 54.1%, AVGO 53.3%) are about what luck gives
+among 20 stocks. Daily direction of liquid large caps is close to efficiently
+priced, and these 7 price/volume features do not change that. The project's
+value is the pipeline around the model: drift detection, explainable
+regime-vs-anomaly classification, gated retraining, confidence-aware
+abstention and the simulation engine - not a trading edge. Earlier figures of
+57-62% came from label leakage, a last-day label bug and picking the best
+stock, and have been removed. A first version of the backtest scored only ~11
+days per 30-day fold (the lookback days were being discarded), which made
+individual stocks swing between 41% and 63%; that is fixed. Reproduce with
+`python -m scripts.run_backtest AAPL MSFT ...`.
 
 ## Exploration notebook
 
