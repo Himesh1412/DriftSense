@@ -7,6 +7,7 @@ Scheduler -> Ingestion -> Drift Detection -> Classification ->
 -> Attribution -> Forecasting + Confidence -> Dashboard logs
 """
 import json
+import sys
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -44,9 +45,10 @@ def append_prediction_log(entry: dict, cfg: dict):
         f.write(json.dumps(entry) + "\n")
 
 
-def run_daily_cycle():
+def run_daily_cycle(ticker: str = None):
     cfg = load_config()
-    ticker = cfg["ticker"]
+    ticker = ticker or cfg["ticker"]
+    print(f"=== {ticker} ===")
 
     # 1-3: trigger + fetch + pass data window
     update_live_window(ticker, cfg)
@@ -86,6 +88,7 @@ def run_daily_cycle():
         # 15: publish drift explanation
         append_drift_log({
             "date": datetime.now().isoformat(),
+            "ticker": ticker,
             "classification": classification["classification"],
             "drift_score": drift_result["drift_score"],
             # why the classifier called it Regime Shift vs Anomaly Spike
@@ -141,4 +144,14 @@ def run_daily_cycle():
 
 
 if __name__ == "__main__":
-    run_daily_cycle()
+    # python -m scripts.run_daily_cycle              -> the default ticker in config
+    # python -m scripts.run_daily_cycle AAPL INFY.NS -> just these
+    # python -m scripts.run_daily_cycle --all        -> every ticker in config tickers.*
+    args = sys.argv[1:]
+    if args == ["--all"]:
+        args = [t for group in load_config()["tickers"].values() for t in group]
+    for t in args or [None]:
+        try:
+            run_daily_cycle(t)
+        except Exception as e:  # one stock failing (e.g. no data from Yahoo) must not stop the rest
+            print(f"  FAILED {t}: {e}")

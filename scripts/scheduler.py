@@ -27,12 +27,15 @@ from scripts.run_daily_cycle import run_daily_cycle
 
 
 def run_scheduled_cycle():
-    print(f"[{datetime.now().isoformat()}] Running scheduled daily cycle...")
-    try:
-        run_daily_cycle()
-        print(f"[{datetime.now().isoformat()}] Daily cycle completed.")
-    except Exception as e:
-        print(f"[{datetime.now().isoformat()}] Daily cycle failed: {e}. Will retry at the next scheduled run.")
+    """Run the daily cycle for every configured stock; one stock failing never stops the others."""
+    tickers = [t for group in load_config()["tickers"].values() for t in group]
+    print(f"[{datetime.now().isoformat()}] Running scheduled daily cycle for {len(tickers)} stocks...")
+    for ticker in tickers:
+        try:
+            run_daily_cycle(ticker)
+        except Exception as e:
+            print(f"[{datetime.now().isoformat()}] {ticker} failed: {e}. Will retry at the next scheduled run.")
+    print(f"[{datetime.now().isoformat()}] Daily cycle finished.")
 
 
 if __name__ == "__main__":
