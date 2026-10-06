@@ -44,6 +44,15 @@ for real-time stock market prediction.
 
        streamlit run src/dashboard/app.py
 
+## Presentation mode (one command)
+
+Starts the dashboard and the Simulation Engine together and opens both in the browser
+(on Windows you can also just double-click `start_demo.bat`):
+
+    python -m scripts.start_demo            # start both
+    python -m scripts.start_demo --refresh  # run one daily cycle first (needs internet)
+    python -m scripts.start_demo --stop     # shut both down (or double-click stop_demo.bat)
+
 ## Adding more stocks
 
 One command backfills history, trains that stock's own model, runs the

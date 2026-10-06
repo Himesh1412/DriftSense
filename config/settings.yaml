@@ -1,6 +1,5 @@
 # config/settings.yaml
 ticker: "META"  # default stock for single-ticker scripts (walk-forward accuracy ~51%, see README "Honest accuracy")
-                # (vs. AAPL's 54.5%, mostly noise-level for a stock this efficiently priced)
 
 data:
   historical_start: "2020-01-01"
