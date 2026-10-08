@@ -10,3 +10,5 @@ plotly
 pyyaml
 pytest
 schedule
+onnx
+onnxruntime

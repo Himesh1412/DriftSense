@@ -133,6 +133,7 @@ def _sandboxed_retrain(ticker: str, snapshot_df: pd.DataFrame, sim_df: pd.DataFr
         sandbox = copy.deepcopy(cfg)
         sandbox["paths"]["model_dir"] = str(tmp / "models")
         sandbox["paths"]["retrain_log"] = str(tmp / "retrain_log.jsonl")
+        sandbox["registry"] = {"git_tag_versions": False}  # a simulated model must never tag the real repo
         sandbox["training"] = {**cfg.get("training", {}), "epochs": cfg["simulator"]["retrain_epochs"]}
 
         real_ticker_dir = resolve_path(cfg["paths"]["model_dir"]) / ticker

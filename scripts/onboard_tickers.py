@@ -34,7 +34,7 @@ def onboard(ticker: str, cfg: dict) -> dict:
     update_live_window(ticker, cfg)  # so the dashboard can show this ticker straight away
 
     trained = train_baseline(hist, cfg)
-    version = save_model(trained["model"], trained["metrics"], ticker, cfg)
+    version = save_model(trained["model"], trained["metrics"], ticker, cfg, training_data=trained["training_data"])
 
     backtest = walk_forward_backtest(hist, cfg)
     out_dir = resolve_path(cfg["paths"]["backtest_log_dir"])

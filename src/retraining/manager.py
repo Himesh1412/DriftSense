@@ -52,11 +52,26 @@ def run_retraining_cycle(historical_df, live_df, benchmark_df, ticker: str, trig
     validation = validate_candidate(candidate_model, current_model, benchmark_df, cfg)
     promoted = validation["passed"]
 
-    new_version = save_model(candidate_model, result["metrics"], ticker, cfg, promoted=promoted)
+    new_version = save_model(candidate_model, result["metrics"], ticker, cfg, promoted=promoted,
+                             training_data=result["training_data"])
+
+    cand_acc = validation["candidate_metrics"]["accuracy"]
+    cur_acc = validation["current_metrics"]["accuracy"] if validation["current_metrics"] else None
+    need = cfg["retraining"]["min_improvement"]
+    if cur_acc is None:
+        justification = f"No current model to beat, so the candidate ({cand_acc:.1%} on the benchmark) was promoted."
+    elif promoted:
+        justification = (f"Promoted: candidate {cand_acc:.1%} vs current {cur_acc:.1%} on the same benchmark window "
+                         f"(required improvement: at least {need:+.1%}).")
+    else:
+        justification = (f"Rejected: candidate {cand_acc:.1%} vs current {cur_acc:.1%} on the same benchmark window "
+                         f"(required improvement: at least {need:+.1%}). The current model stays live.")
 
     log_entry = {
         "version": new_version,
         "trigger_reason": trigger_reason,
+        "justification": justification,
+        "training_data": result["training_data"],
         "n_training_rows": len(training_df),
         "accuracy_before": validation["current_metrics"]["accuracy"] if validation["current_metrics"] else None,
         "accuracy_after": validation["candidate_metrics"]["accuracy"],

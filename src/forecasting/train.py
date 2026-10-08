@@ -14,6 +14,7 @@ from datetime import datetime
 from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, balanced_accuracy_score
 
 from src.config_loader import load_config, resolve_path
+from src.retraining.versioning import file_sha256, tag_model_version
 from src.forecasting.model import DirectionLSTM
 from src.forecasting.confidence import mc_dropout_pass
 from src.forecasting.decision import balance_report, calls_with_context, fit_decision_offset
@@ -259,12 +260,22 @@ def train_baseline(df: pd.DataFrame, cfg: dict = None, epochs: int = None) -> di
         "balanced": balance["balanced"],
     }
     return {"model": model, "metrics": metrics, "n_train": len(X_train), "n_test": len(X_test),
+            "training_data": describe_training_data(df),
             "loss_history": info["loss_history"], "best_val_balanced_accuracy": info["best_val_balanced_accuracy"],
             "calibrated_abstain_threshold": round(info["calibrated_abstain_threshold"], 4),
             "balance": balance, "attempts": attempt}
 
 
-def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bool = True) -> int:
+def describe_training_data(df: pd.DataFrame) -> dict:
+    """The date range and size of the data a model was trained on (SRS 3.4 asks artifacts to carry this)."""
+    info = {"n_rows": int(len(df))}
+    if "Date" in df.columns and len(df):
+        info["start"], info["end"] = str(df["Date"].iloc[0])[:10], str(df["Date"].iloc[-1])[:10]
+    return info
+
+
+def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bool = True,
+               training_data: dict = None) -> int:
     """Models are namespaced per ticker (models/{ticker}/v{n}/) so training
     one stock's model can never collide with or silently replace another's
     — see src/retraining/registry.py for the read side of this layout."""
@@ -277,6 +288,8 @@ def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bo
 
     torch.save(model.state_dict(), vdir / "model.pt")
     metadata = {
+        "model_sha256": file_sha256(vdir / "model.pt"),
+        "training_data": training_data,  # date range + rows the model was trained on
         "version": version,
         "ticker": ticker,
         "trained_at": datetime.now().isoformat(),
@@ -297,6 +310,8 @@ def save_model(model, metrics: dict, ticker: str, cfg: dict = None, promoted: bo
     }
     with open(vdir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
+    if promoted:
+        tag_model_version(ticker, version, metadata, cfg)
     return version
 
 
@@ -306,5 +321,5 @@ if __name__ == "__main__":
     snapshot = resolve_path(cfg["paths"]["snapshot_dir"]) / f"{ticker}_historical.csv"
     df = pd.read_csv(snapshot)
     result = train_baseline(df, cfg)
-    version = save_model(result["model"], result["metrics"], ticker, cfg)
+    version = save_model(result["model"], result["metrics"], ticker, cfg, training_data=result["training_data"])
     print(f"Trained v{version} — metrics: {result['metrics']}")
