@@ -10,7 +10,7 @@ switch), and for the selected stock a price chart with the model's next-day call
 followed by the evidence / drift / retraining / actual-vs-predicted sections.
 """
 import json
-from datetime import timedelta
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -29,6 +29,23 @@ from src.dashboard.theme import (ACCENT, ACCENT_LINE, ACCENT_SOFT, AMBER, CORAL,
 st.set_page_config(page_title="DriftSense", layout="wide", page_icon="◆", initial_sidebar_state="collapsed")
 cfg = load_config()
 apply_theme()
+
+# ───────────────────────── live refresh (NFR-4) ─────────────────────────
+# Streamlit only redraws when something makes it rerun. This small fragment checks the log files every few
+# seconds and reruns the page when a new prediction, drift alert or retraining entry has been written, so the
+# dashboard follows a daily cycle within the SRS's 10 seconds without anyone pressing refresh.
+_WATCHED = [cfg["paths"][k] for k in ("prediction_log", "drift_log", "retrain_log")]
+
+
+@st.fragment(run_every=cfg.get("dashboard", {}).get("refresh_check_seconds", 5))
+def _watch_logs():
+    stamp = tuple(resolve_path(p).stat().st_mtime if resolve_path(p).exists() else 0 for p in _WATCHED)
+    if st.session_state.setdefault("_log_stamp", stamp) != stamp:
+        st.session_state["_log_stamp"] = stamp
+        st.rerun(scope="app")
+
+
+_watch_logs()
 
 # ───────────────────────── which stock ─────────────────────────
 GROUPS = {"nasdaq": "Nasdaq", "india": "NSE"}
@@ -103,7 +120,7 @@ st.markdown(f"""
     <div class="brand">DriftSense</div>
     <div><span class="pill on">Signals</span><a class="pill" href="#evidence" target="_self">Evidence</a><a class="pill" href="#drift" target="_self">Drift</a><a class="pill" href="#calls" target="_self">Calls</a>{sim_pill}</div>
   </div>
-  <div class="right">{status_tag}<span class="tag">Model {"v" + str(version) if version else "none yet"}</span></div>
+  <div class="right">{status_tag}<span class="tag">Updated {datetime.now():%H:%M:%S}</span><span class="tag">Model {"v" + str(version) if version else "none yet"}</span></div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -206,6 +223,8 @@ with right:
             bt_path = resolve_path(cfg["paths"]["backtest_log_dir"]) / f"{ticker}.json"
             if bt_path.exists():
                 summary_bt = json.loads(bt_path.read_text()).get("summary", {})
+            drift_text = f"{drift_result['drift_score']:.2f}" if drift_result else "—"   # (nested same-quote f-strings
+            acc_text = f"{summary_bt['accuracy_mean']:.1%}" if summary_bt else "—"       #  would need Python 3.12; SRS says 3.10+)
             t1, t2, t3, t4 = st.columns(4)
             tile_kind = {"▲ UP": "up", "▼ DOWN": "down", "Abstained": "warn"}.get(call_text, "")
             t1.markdown(f'<div class="tile {tile_kind}"><div class="ds-metric-label">Next-day call</div>'
@@ -216,9 +235,9 @@ with right:
                         unsafe_allow_html=True)
             t3.markdown(f'<div class="tile"><div class="ds-metric-label">Drift score · limit {cfg["drift"]["threshold"]}</div>'
                         f'<div class="ds-num" style="color:{AMBER if drift_flagged else INK};">'
-                        f'{f"{drift_result["drift_score"]:.2f}" if drift_result else "—"}</div></div>', unsafe_allow_html=True)
+                        f'{drift_text}</div></div>', unsafe_allow_html=True)
             t4.markdown(f'<div class="tile"><div class="ds-metric-label">Backtest accuracy</div>'
-                        f'<div class="ds-num">{f"{summary_bt["accuracy_mean"]:.1%}" if summary_bt else "—"}</div></div>',
+                        f'<div class="ds-num">{acc_text}</div></div>',
                         unsafe_allow_html=True)
             if latest_prediction is None:
                 st.caption("No live prediction yet for this stock — run `python -m scripts.run_daily_cycle` "

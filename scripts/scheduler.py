@@ -17,24 +17,52 @@ A failed cycle (e.g. Yahoo Finance API downtime) is caught and logged
 rather than crashing the scheduler loop (SRS §5.1 Reliability) — it simply
 waits for the next scheduled run instead of taking the whole process down.
 """
+import json
 import time
 from datetime import datetime
 
 import schedule
 
-from src.config_loader import load_config
+from src.config_loader import load_config, resolve_path
 from scripts.run_daily_cycle import run_daily_cycle
 
 
+def log_cycle_error(ticker: str, error: Exception, cfg: dict, final: bool):
+    """SRS 5 Reliability: failures are logged (to a file, not just the console), then retried."""
+    path = resolve_path(cfg["paths"]["cycle_error_log"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        f.write(json.dumps({"time": datetime.now().isoformat(), "ticker": ticker, "error": str(error),
+                            "will_retry": not final}) + "\n")
+
+
 def run_scheduled_cycle():
-    """Run the daily cycle for every configured stock; one stock failing never stops the others."""
-    tickers = [t for group in load_config()["tickers"].values() for t in group]
+    """
+    Run the daily cycle for every configured stock. One stock failing never stops the others: failures
+    are logged to a file and retried once after schedule.retry_delay_seconds; anything still failing is
+    logged as final and left for the next scheduled run.
+    """
+    cfg = load_config()
+    tickers = [t for group in cfg["tickers"].values() for t in group]
     print(f"[{datetime.now().isoformat()}] Running scheduled daily cycle for {len(tickers)} stocks...")
+    failed = []
     for ticker in tickers:
         try:
             run_daily_cycle(ticker)
         except Exception as e:
-            print(f"[{datetime.now().isoformat()}] {ticker} failed: {e}. Will retry at the next scheduled run.")
+            print(f"[{datetime.now().isoformat()}] {ticker} failed: {e}")
+            log_cycle_error(ticker, e, cfg, final=False)
+            failed.append(ticker)
+    if failed:
+        delay = cfg.get("schedule", {}).get("retry_delay_seconds", 300)
+        print(f"[{datetime.now().isoformat()}] Retrying {len(failed)} failed stock(s) in {delay}s...")
+        time.sleep(delay)
+        for ticker in failed:
+            try:
+                run_daily_cycle(ticker)
+            except Exception as e:
+                print(f"[{datetime.now().isoformat()}] {ticker} failed again: {e}. Left for the next scheduled run.")
+                log_cycle_error(ticker, e, cfg, final=True)
     print(f"[{datetime.now().isoformat()}] Daily cycle finished.")
 
 

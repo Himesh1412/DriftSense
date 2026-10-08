@@ -35,6 +35,7 @@ paths:
   backtest_log_dir: "logs/backtest_results"   # one {ticker}.json per stock — see run_backtest.py
   prediction_log: "logs/prediction_log.jsonl"
   drift_performance_log: "logs/drift_performance_report.json"
+  cycle_error_log: "logs/cycle_errors.jsonl"   # failed daily-cycle runs, for the retry/audit trail
 
 backtest:
   n_folds: 6                # number of walk-forward folds
@@ -74,6 +75,7 @@ simulator:                  # synthetic stress scenarios for demos (src/simulati
   spike_calm_days: 3
 
 schedule:
+  retry_delay_seconds: 300  # a failed stock is retried once after this long (SRS 5 Reliability)
   daily_run_time: "17:30"   # local time scripts/scheduler.py runs the daily cycle at (FR-3)
 
 training:
@@ -92,3 +94,14 @@ training:
   balance_min_up_share: 0.30     # share of calls that are UP must land inside [min, max]
   balance_max_up_share: 0.70
   balance_max_retries: 2          # fresh-start retrains allowed before a lopsided model is just flagged
+
+ingestion:                  # NFR-2: stay inside Yahoo Finance's free-tier limits
+  min_seconds_between_requests: 1.0   # a 20-stock run makes ~1 request per second at most
+  retries: 3                          # attempts per request before an error is surfaced
+  retry_backoff_seconds: 2.0          # pause grows with each attempt (2s, 4s, ...)
+
+registry:
+  git_tag_versions: true    # SRS 3.3: tag each promoted model as model/<ticker>/v<n> (best effort; see versioning.py)
+
+dashboard:
+  refresh_check_seconds: 5  # NFR-4: how often the page checks the logs for something new (limit: 10s)
