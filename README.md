@@ -53,6 +53,26 @@ Starts the dashboard and the Simulation Engine together and opens both in the br
     python -m scripts.start_demo --refresh  # run one daily cycle first (needs internet)
     python -m scripts.start_demo --stop     # shut both down (or double-click stop_demo.bat)
 
+## Model versions, ONNX export and history replay
+
+- **Versions.** Every model lives in `models/<ticker>/v<n>/` with a `metadata.json` holding its metrics, whether it was
+  promoted, and the date range and size of the data it was trained on. Each promoted model also gets an annotated Git
+  tag `model/<ticker>/v<n>` whose message carries the model file's SHA-256 (set `registry.git_tag_versions: false`
+  to turn this off). Tags stay local until you run `git push --tags`.
+- **ONNX.** `python -m scripts.export_onnx` writes `model.onnx` beside each stock's `model.pt`, so a model can be
+  run with only `onnxruntime` (no DriftSense code, no PyTorch). Each export is checked against PyTorch before it is kept.
+- **Replay on real history.** `python -m scripts.replay_history` runs the drift detector and classifier over every
+  stock's real past, one 90-day window at a time, and writes `logs/history_replay.json`. On the 20 configured stocks
+  it finds Anomaly Spikes and quiet drift but no Regime Shift (see the compliance document in `docs/`).
+
+## Reliability and request limits
+
+Yahoo requests are spaced at least `ingestion.min_seconds_between_requests` apart and retried
+`ingestion.retries` times. In the scheduler, a stock whose daily cycle fails is logged to `logs/cycle_errors.jsonl`
+and retried once after `schedule.retry_delay_seconds`; one failing stock never stops the others. The dashboard checks
+the logs every `dashboard.refresh_check_seconds` and redraws itself when a new prediction, drift alert or retraining
+entry appears.
+
 ## Adding more stocks
 
 One command backfills history, trains that stock's own model, runs the

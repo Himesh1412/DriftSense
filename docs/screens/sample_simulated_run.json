@@ -1,0 +1,39 @@
+{
+  "ticker": "META",
+  "scenario": "regime_shift (SIMULATED)",
+  "drift": {
+    "drift_score": 0.6322,
+    "ks_statistic": 0.2645,
+    "ks_p_value": 0.0,
+    "psi": 0.6578,
+    "threshold": 0.3,
+    "detected": true
+  },
+  "classification": {
+    "classification": "Regime Shift",
+    "magnitude": 2.641,
+    "duration_days": 5,
+    "reasoning": "Magnitude 2.64 std exceeded the 2.5 spike threshold; 5/5 of the most recent days stayed elevated. That meets the regime_min_duration_days (5) bar for a sustained shift, not a one-off spike \u2014 classified as Regime Shift."
+  },
+  "attribution": {
+    "top_feature": "volatility_10d",
+    "explanation_text": "Drift primarily attributed to 'volatility_10d' (mean |SHAP| = 0.0004)."
+  },
+  "retraining": {
+    "version": 2,
+    "trigger_reason": "SIMULATED Regime Shift",
+    "justification": "Promoted: candidate 42.9% vs current 42.9% on the same benchmark window (required improvement: at least +0.0%).",
+    "training_data": {
+      "n_rows": 1764,
+      "start": "2020-01-02",
+      "end": "2027-01-05"
+    },
+    "n_training_rows": 1764,
+    "accuracy_before": 0.4286,
+    "accuracy_after": 0.4286,
+    "promoted": true,
+    "timestamp": "2026-10-08T18:53:26.762422"
+  },
+  "outcome": "Drift flagged and classified as a Regime Shift: a candidate was retrained on history plus the new regime and benchmarked against the current model (candidate 0.4286 vs current 0.4286) -> PROMOTED to current model by the promotion gate.",
+  "seconds": 31.3
+}
